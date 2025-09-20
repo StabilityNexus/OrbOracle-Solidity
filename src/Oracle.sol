@@ -25,8 +25,6 @@ contract Oracle is Ownable, ReentrancyGuard {
     mapping(address => uint256) public depositedTokens;
     uint256 public totalDepositedTokens;
     
-    uint256 public immutable depositLockingPeriod;              // seconds that tokens must be locked after deposit before governance operations
-    uint256 public immutable withdrawalLockingPeriod;           // seconds that tokens must be locked after last operation before withdrawal
     mapping(address => uint256) public depositTimestamp;        // when user last deposited tokens
     mapping(address => uint256) public lastOperationTimestamp;  // when user last performed any operation (submit, vote)
     
@@ -35,30 +33,33 @@ contract Oracle is Ownable, ReentrancyGuard {
     mapping(address => mapping(address => bool)) public hasVotedBlacklist;
     mapping(address => mapping(address => bool)) public hasVotedWhitelist;
 
-    // Oracle values (kept private-like but readable via getters)
-    int256 private _value;       // aggregated value (e.g., EWMA)
-    int256 private _latestValue; // most recent raw submission
-    
-    uint256 public _lastTimestamp;
-
-    int256 private _P;        // last average price (decayed weighted mean) 
-    uint256 private _Q;       // last decayed total weight
-
     mapping(address => int256) private _Pof; // P(x): last submitted price by x
     mapping(address => uint256) private _Wof; // W(x): weight of x
     mapping(address => uint256) private _Tof; // T(x): last submission time of x
+    mapping(address => bool) public submitters; // submitters list
 
-    uint256 public _T;           // Global last update time
-
-    uint256 public immutable reward; // out of 100000 (1 = 0.001%)
+    // 2^-k for k = 0..60, scaled by 1e18 (UD60x18)
+    uint256[61] private constant POW2_NEG_INT_WAD = [1_000000000000000000, 500000000000000000, 250000000000000000, 125000000000000000,62500000000000000, 31250000000000000, 15625000000000000, 7812500000000000,3906250000000000, 1953125000000000, 976562500000000, 488281250000000,244140625000000, 122070312500000, 61035156250000, 30517578125000,15258789062500, 7629394531250, 3814697265625, 1907348632812, 953674316406,476837158203, 238418579102, 119209289551, 59604644775, 29802322388,14901161194, 7450580597, 3725290298, 1862645149, 931322574, 465661287,232830643, 116415322, 58207661, 29103831, 14551915, 7275958, 3637979, 1818989,909495, 454747, 227373, 113687, 56843, 28422, 14211, 7105, 3553, 1776, 888,444, 222, 111, 56, 28, 14, 7, 3, 2, 1];
+    uint256 private constant WAD = 1e18;
+    uint256 private constant FP5 = 1e5;             // 5 decimal places for the exponent
     uint256 public constant DENOMINATOR = 100000;
 
+    // Oracle values (kept private-like but readable via getters)
+    int256  private _value;       // aggregated value (e.g., EWMA)
+    int256  private _latestValue; // most recent raw submission
+    int256  private _P;        // last average price (decayed weighted mean) 
+    uint256 private _Q;       // last decayed total weight
+
+    uint256 public _T;           // Global last update time
+    uint256 public _lastTimestamp;
+
     // Aggregation config -> halfLifeSeconds controls time-decay in default EWMA formula
+    uint256 public immutable depositLockingPeriod;              // seconds that tokens must be locked after deposit before governance operations
+    uint256 public immutable withdrawalLockingPeriod;           // seconds that tokens must be locked after last operation before withdrawal
+    uint256 public immutable reward; // out of 100000 (1 = 0.001%)
     uint256 public immutable halfLifeSeconds;
     uint256 public immutable quorum; // required votes >= quorum% of totalDepositedTokens (out of 10000)
     uint256 public immutable alpha;
-
-    mapping(address => bool) public submitters; // submitters list
 
     // Modifiers
     modifier notBlacklisted() {
@@ -72,27 +73,11 @@ contract Oracle is Ownable, ReentrancyGuard {
         _;
     }
 
-    constructor(
-        address owner_,
-        address weightToken_,
-        uint256 reward_,
-        uint256 halfLifeSeconds_,
-        uint256 quorum_,
-        uint256 depositLockingPeriod_,
-        uint256 withdrawalLockingPeriod_,
-        uint256 alpha_
-    ) Ownable(owner_) {
+    constructor(address owner_,address weightToken_,uint256 reward_,uint256 halfLifeSeconds_,uint256 quorum_,uint256 depositLockingPeriod_,uint256 withdrawalLockingPeriod_,uint256 alpha_) Ownable(owner_) {
         require(weightToken_ != address(0), "Invalid token address");
-        weightToken = IERC20(weightToken_);
-
-        reward = reward_;
-        halfLifeSeconds = halfLifeSeconds_;
-        quorum = quorum_;
-        depositLockingPeriod = depositLockingPeriod_;
-        withdrawalLockingPeriod = withdrawalLockingPeriod_;
-        _lastTimestamp = block.timestamp;
-        _T = block.timestamp;  
-        alpha = alpha_;
+        weightToken = IERC20(weightToken_); reward = reward_; halfLifeSeconds = halfLifeSeconds_;
+        quorum = quorum_; depositLockingPeriod = depositLockingPeriod_; withdrawalLockingPeriod = withdrawalLockingPeriod_;
+        _lastTimestamp = block.timestamp; _T = block.timestamp; alpha = alpha_;
 
         emit ConfigUpdated(reward, halfLifeSeconds, quorum);
     }
@@ -271,21 +256,35 @@ contract Oracle is Ownable, ReentrancyGuard {
 
     function _decayQToNow() internal view returns (uint256) {
         if (_Q == 0) return 0;
-        uint256 elapsed = block.timestamp - _T; // Use _T for price submission time
-        uint256 f = _decayFactor(elapsed); // returns δ^(elapsed) in 1e18 fixed-point
+        uint256 elapsed = block.timestamp - _T;     // Use _T for price submission time
+        uint256 f = _decayFactor(elapsed);          // returns δ^(elapsed) in 1e18 fixed-point
         return (_Q * f) / 1e18;
     }
 
     function _applyDecay(uint256 value, uint256 elapsed) internal view returns (uint256) {
-        if (halfLifeSeconds == 0 || elapsed == 0) return value;
-        uint256 decayFactor = _decayFactor(elapsed);
-        return (value * decayFactor) / 1e18;
+        if (value == 0) return 0;
+        uint256 f = _decayFactor(elapsed);        
+        return (value * f) / WAD;
     }
 
     function _decayFactor(uint256 elapsed) internal view returns (uint256) {
-        if (elapsed >= halfLifeSeconds * 2) return 0; 
-        return 1e18 - (elapsed * 1e18) / (halfLifeSeconds * 2);
+        if (elapsed == 0) return WAD;
+        if (halfLifeSeconds == 0) return WAD;   // no decay if HL=0
+
+        uint256 scaledX = (elapsed * FP5) / halfLifeSeconds;
+
+        if (scaledX >= 61 * FP5) return 1;      // If x >= 61 -> ~0 (2^-61 ~ 4.3e-19) ; ~0 in 1e18 scale
+
+        uint256 k    = scaledX / FP5;           // integer part
+        uint256 frac = scaledX % FP5;           // 0..99999 (fractional 5dp)
+
+        if (frac == 0) return POW2_NEG_INT_WAD[k];
+
+        uint256 hi = POW2_NEG_INT_WAD[k];
+        uint256 lo = (k < 60) ? POW2_NEG_INT_WAD[k + 1] : 0;
+        unchecked {return hi - ((hi - lo) * frac) / FP5;}
     }
+
     
     function getVotes(address target) external view returns (uint256 blacklistVotesCount, uint256 whitelistVotesCount) { return (blacklistVotes[target], whitelistVotes[target]); }
     /// @notice Check if an address has any votes for blacklisting (either blacklist)

@@ -3,7 +3,6 @@ pragma solidity ^0.8.20;
 
 import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Oracle} from "./Oracle.sol";
-import {IERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 
 contract OracleFactory is Ownable {
     event OracleCreated(address indexed oracle, address indexed creator, address token);
@@ -62,9 +61,6 @@ contract OracleFactory is Ownable {
         emit OracleCreated(oracle, msg.sender, token);
     }
 
-    // ---------------------
-    // Views
-    // ---------------------
     function allOracles() external view returns (OracleInfo[] memory) {
         return oracles;
     }

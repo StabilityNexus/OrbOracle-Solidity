@@ -9,6 +9,7 @@ contract Oracle is Ownable, ReentrancyGuard {
 
     event Submitted(address indexed submitter, int256 value, uint256 weight, uint256 rewardWei, uint256 timestamp);
     event ValueUpdated(int256 value, int256 latestValue, uint256 timestamp);
+    event PriceHistoryUpdated(uint256 indexed timestamp, int256 price, int256 latestValue);
     event Funded(address indexed from, uint256 amount);
     event TokenDeposited(address indexed user, uint256 amount);
     event TokenWithdrawn(address indexed user, uint256 amount);
@@ -37,6 +38,11 @@ contract Oracle is Ownable, ReentrancyGuard {
     mapping(address => uint256) private _Wof; // W(x): weight of x
     mapping(address => uint256) private _Tof; // T(x): last submission time of x
     mapping(address => bool) public submitters; // submitters list
+    
+    // Price history tracking
+    mapping(uint256 => int256) public priceHistory; // timestamp => aggregated price at that time
+    mapping(uint256 => int256) public latestValueHistory; // timestamp => latest raw submission at that time
+    uint256[] public priceTimestamps; // array of timestamps when price was updated
 
     // 2^-k for k = 0..60, scaled by 1e18 (UD60x18)
     uint256[61] private constant POW2_NEG_INT_WAD = [1_000000000000000000, 500000000000000000, 250000000000000000, 125000000000000000,62500000000000000, 31250000000000000, 15625000000000000, 7812500000000000,3906250000000000, 1953125000000000, 976562500000000, 488281250000000,244140625000000, 122070312500000, 61035156250000, 30517578125000,15258789062500, 7629394531250, 3814697265625, 1907348632812, 953674316406,476837158203, 238418579102, 119209289551, 59604644775, 29802322388,14901161194, 7450580597, 3725290298, 1862645149, 931322574, 465661287,232830643, 116415322, 58207661, 29103831, 14551915, 7275958, 3637979, 1818989,909495, 454747, 227373, 113687, 56843, 28422, 14211, 7105, 3553, 1776, 888,444, 222, 111, 56, 28, 14, 7, 3, 2, 1];
@@ -148,8 +154,14 @@ contract Oracle is Ownable, ReentrancyGuard {
         _latestValue = newValue;
         submitters[msg.sender] = true;
         
+        // Step 6: Store price history
+        priceHistory[nowTs] = newP;
+        latestValueHistory[nowTs] = newValue;
+        priceTimestamps.push(nowTs);
+        
         emit Submitted(msg.sender, newValue, w, rewardToSubmitter, nowTs);
         emit ValueUpdated(newP, newValue, nowTs);
+        emit PriceHistoryUpdated(nowTs, newP, newValue);
     }
 
     function readValue() external notBlacklisted returns (int256) { 
@@ -298,5 +310,40 @@ contract Oracle is Ownable, ReentrancyGuard {
     /// @notice Get all submitter-related info for an address to track their activity
     function getSubmitterInfo(address submitter) external view returns ( bool hasEverSubmitted, int256 lastSubmittedPrice, uint256 lastWeight, uint256 lastSubmissionTime) {
         return (submitters[submitter], _Pof[submitter], _Wof[submitter], _Tof[submitter]);
+    }
+    
+    // Price history getter functions
+    
+    /// @notice Get the total number of price history entries
+    function getPriceHistoryLength() external view returns (uint256) {
+        return priceTimestamps.length;
+    }
+    
+    /// @notice Get a range of price history entries
+    /// @param startIndex Starting index (inclusive)
+    /// @param endIndex Ending index (exclusive, like array slicing)
+    /// @return timestamps Array of timestamps
+    /// @return aggregatedPrices Array of aggregated prices
+    /// @return latestValues Array of latest raw submissions
+    function getPriceHistoryRange(uint256 startIndex, uint256 endIndex) external view returns (
+        uint256[] memory timestamps, 
+        int256[] memory aggregatedPrices, 
+        int256[] memory latestValues
+    ) {
+        require(startIndex < priceTimestamps.length, "Start index out of bounds");
+        require(endIndex <= priceTimestamps.length, "End index out of bounds");
+        require(startIndex < endIndex, "Invalid range");
+        
+        uint256 length = endIndex - startIndex;
+        timestamps = new uint256[](length);
+        aggregatedPrices = new int256[](length);
+        latestValues = new int256[](length);
+        
+        for (uint256 i = 0; i < length; i++) {
+            uint256 timestamp = priceTimestamps[startIndex + i];
+            timestamps[i] = timestamp;
+            aggregatedPrices[i] = priceHistory[timestamp];
+            latestValues[i] = latestValueHistory[timestamp];
+        }
     }
 }

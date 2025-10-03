@@ -7,185 +7,155 @@ import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 
 contract Oracle is Ownable, ReentrancyGuard {
 
-    event Submitted(address indexed submitter, int256 value, uint256 weight, uint256 rewardWei, uint256 timestamp);
-    event ValueUpdated(int256 value, int256 latestValue, uint256 timestamp);
-    event PriceHistoryUpdated(uint256 indexed timestamp, int256 price, int256 latestValue);
+    event PriceSubmitted(address indexed submitter, uint256 indexed timestamp, int256 submittedValue, int256 aggregatedPrice, uint256 weight, uint256 rewardWei);
     event Funded(address indexed from, uint256 amount);
     event TokenDeposited(address indexed user, uint256 amount);
     event TokenWithdrawn(address indexed user, uint256 amount);
-    event VotedBlacklist(address indexed target, address indexed voter, bool support, uint256 weight);
-    event VotedWhitelist(address indexed target, address indexed voter, bool support, uint256 weight);
-    event Blacklisted(address indexed target);
-    event Whitelisted(address indexed target);
-    event ConfigUpdated(uint256 reward, uint256 halfLifeSeconds, uint256 quorum);
+    event Voted(address indexed target, address indexed voter, bool isBlacklist, uint256 weight);
+    event BlacklistStatusChanged(address indexed target, bool isBlacklisted);
 
-    IERC20 public immutable weightToken;
-    mapping(address => bool) public isBlacklisted;
+    IERC20 public immutable WEIGHT_TOKEN;
     
-    // Token deposit system for voting
-    mapping(address => uint256) public depositedTokens;
+    mapping(address => uint256) public depositedTokens;         // Token deposit system for voting
     uint256 public totalDepositedTokens;
     
     mapping(address => uint256) public depositTimestamp;        // when user last deposited tokens
     mapping(address => uint256) public lastOperationTimestamp;  // when user last performed any operation (submit, vote)
     
-    mapping(address => uint256) public blacklistVotes; // votes to blacklist an address
-    mapping(address => uint256) public whitelistVotes; // votes to whitelist an address
+    mapping(address => bool) public isBlacklisted;              // blacklist status of an address
+    mapping(address => uint256) public blacklistVotes;          // votes to blacklist an address
+    mapping(address => uint256) public whitelistVotes;          // votes to whitelist an address
     mapping(address => mapping(address => bool)) public hasVotedBlacklist;
     mapping(address => mapping(address => bool)) public hasVotedWhitelist;
+    
+    mapping(address => mapping(address => uint256)) public blacklistVoteWeights;   // Store individual vote weights: target => voter => weight
+    mapping(address => mapping(address => uint256)) public whitelistVoteWeights;
 
-    mapping(address => int256) private _Pof; // P(x): last submitted price by x
-    mapping(address => uint256) private _Wof; // W(x): weight of x
-    mapping(address => uint256) private _Tof; // T(x): last submission time of x
-    mapping(address => bool) public submitters; // submitters list
+    mapping(address => int256) private pof;                    // P(x): last submitted price by x
+    mapping(address => uint256) private wof;                   // W(x): weight of x
+    mapping(address => uint256) private tof;                   // T(x): last submission time of x
+
+    mapping(address => address[]) public userBlacklistVotes;    // user => array of addresses they voted to blacklist
+    mapping(address => address[]) public userWhitelistVotes;    // user => array of addresses they voted to whitelist
     
     // Price history tracking
-    mapping(uint256 => int256) public priceHistory; // timestamp => aggregated price at that time
-    mapping(uint256 => int256) public latestValueHistory; // timestamp => latest raw submission at that time
-    uint256[] public priceTimestamps; // array of timestamps when price was updated
+    mapping(uint256 => int256) public priceHistory;              // timestamp => aggregated price at that time
+    mapping(uint256 => int256) public latestValueHistory;        // timestamp => latest raw submission at that time
+    uint256[] public priceTimestamps;                            // array of timestamps when price was updated
 
-    // 2^-k for k = 0..60, scaled by 1e18 (UD60x18)
-    uint256[61] private constant POW2_NEG_INT_WAD = [1_000000000000000000, 500000000000000000, 250000000000000000, 125000000000000000,62500000000000000, 31250000000000000, 15625000000000000, 7812500000000000,3906250000000000, 1953125000000000, 976562500000000, 488281250000000,244140625000000, 122070312500000, 61035156250000, 30517578125000,15258789062500, 7629394531250, 3814697265625, 1907348632812, 953674316406,476837158203, 238418579102, 119209289551, 59604644775, 29802322388,14901161194, 7450580597, 3725290298, 1862645149, 931322574, 465661287,232830643, 116415322, 58207661, 29103831, 14551915, 7275958, 3637979, 1818989,909495, 454747, 227373, 113687, 56843, 28422, 14211, 7105, 3553, 1776, 888,444, 222, 111, 56, 28, 14, 7, 3, 2, 1];
+    uint256[61] private pow2NegIntWad = [1_000000000000000000, 500000000000000000, 250000000000000000, 125000000000000000,62500000000000000, 31250000000000000, 15625000000000000, 7812500000000000,3906250000000000, 1953125000000000, 976562500000000, 488281250000000,244140625000000, 122070312500000, 61035156250000, 30517578125000,15258789062500, 7629394531250, 3814697265625, 1907348632812, 953674316406,476837158203, 238418579102, 119209289551, 59604644775, 29802322388,14901161194, 7450580597, 3725290298, 1862645149, 931322574, 465661287,232830643, 116415322, 58207661, 29103831, 14551915, 7275958, 3637979, 1818989,909495, 454747, 227373, 113687, 56843, 28422, 14211, 7105, 3553, 1776, 888,444, 222, 111, 56, 28, 14, 7, 3, 2, 1];
     uint256 private constant WAD = 1e18;
-    uint256 private constant FP5 = 1e5;             // 5 decimal places for the exponent
-    uint256 public constant DENOMINATOR = 100000;
+    uint256 private constant DENOMINATOR = 1e5;
 
-    // Oracle values (kept private-like but readable via getters)
-    int256  private _value;       // aggregated value (e.g., EWMA)
-    int256  private _latestValue; // most recent raw submission
-    int256  private _P;        // last average price (decayed weighted mean) 
-    uint256 private _Q;       // last decayed total weight
+    int256  private _value;                                      // aggregated value (e.g., EWMA)
+    int256  private latestValue;                                 // most recent raw submission
+    int256  private aggregatedPrice;                             // last average price (decayed weighted mean) 
+    uint256 private aggregatedWeight;                            // last decayed total weight
+    uint256 public lastSubmissionTime;                           // Global last update time of a price submission
+    uint256 public lastTimestamp;                                // Global last update time of a oracle operation
 
-    uint256 public _T;           // Global last update time
-    uint256 public _lastTimestamp;
+    // Aggregation config -> HALF_LIFE_SECONDS controls time-decay in default EWMA formula
+    uint256 public immutable DEPOSIT_LOCKING_PERIOD;              // seconds that tokens must be locked after deposit before governance operations
+    uint256 public immutable WITHDRAWAL_LOCKING_PERIOD;           // seconds that tokens must be locked after last operation before withdrawal
+    uint256 public immutable REWARD; 
+    uint256 public immutable HALF_LIFE_SECONDS;
+    uint256 public immutable QUORUM;                              // required votes >= QUORUM% of totalDepositedTokens (out of 10000)
+    uint256 public immutable ALPHA;
 
-    // Aggregation config -> halfLifeSeconds controls time-decay in default EWMA formula
-    uint256 public immutable depositLockingPeriod;              // seconds that tokens must be locked after deposit before governance operations
-    uint256 public immutable withdrawalLockingPeriod;           // seconds that tokens must be locked after last operation before withdrawal
-    uint256 public immutable reward; // out of 100000 (1 = 0.001%)
-    uint256 public immutable halfLifeSeconds;
-    uint256 public immutable quorum; // required votes >= quorum% of totalDepositedTokens (out of 10000)
-    uint256 public immutable alpha;
-
-    // Modifiers
     modifier notBlacklisted() {
         require(!isBlacklisted[msg.sender], "Blacklisted");
         _;
     }
     modifier onlyTokenHolder() {
-        require(!isBlacklisted[msg.sender], "Blacklisted");
         require(depositedTokens[msg.sender] > 0, "No deposited tokens");
-        require(block.timestamp >= depositTimestamp[msg.sender] + depositLockingPeriod, "Tokens still in deposit locking period");
+        require(block.timestamp >= getTokenUnlockTime(msg.sender), "Tokens still in deposit locking period");
         _;
     }
 
     constructor(address owner_,address weightToken_,uint256 reward_,uint256 halfLifeSeconds_,uint256 quorum_,uint256 depositLockingPeriod_,uint256 withdrawalLockingPeriod_,uint256 alpha_) Ownable(owner_) {
         require(weightToken_ != address(0), "Invalid token address");
-        weightToken = IERC20(weightToken_); reward = reward_; halfLifeSeconds = halfLifeSeconds_;
-        quorum = quorum_; depositLockingPeriod = depositLockingPeriod_; withdrawalLockingPeriod = withdrawalLockingPeriod_;
-        _lastTimestamp = block.timestamp; _T = block.timestamp; alpha = alpha_;
-
-        emit ConfigUpdated(reward, halfLifeSeconds, quorum);
+        WEIGHT_TOKEN = IERC20(weightToken_); REWARD = reward_; HALF_LIFE_SECONDS = halfLifeSeconds_;
+        QUORUM = quorum_; DEPOSIT_LOCKING_PERIOD = depositLockingPeriod_; WITHDRAWAL_LOCKING_PERIOD = withdrawalLockingPeriod_;
+        lastTimestamp = block.timestamp; lastSubmissionTime = block.timestamp; ALPHA = alpha_;
     }
 
-    // Funding ETH to the contract
     receive() external payable {
-        _lastTimestamp = block.timestamp;
+        lastTimestamp = block.timestamp;
         emit Funded(msg.sender, msg.value);
     }
     function deposit() external payable {
-        _lastTimestamp = block.timestamp;
+        lastTimestamp = block.timestamp;
         emit Funded(msg.sender, msg.value);
     }
 
     function submitValue(int256 newValue) external nonReentrant onlyTokenHolder {
-        lastOperationTimestamp[msg.sender] = block.timestamp;
-        _lastTimestamp = block.timestamp;
         uint256 nowTs = block.timestamp;
+        lastOperationTimestamp[msg.sender] = nowTs;
+        lastTimestamp = nowTs;
         uint256 w = depositedTokens[msg.sender];
 
-        // Step 1: decay global Q
-        uint256 decayedQ = _applyDecay(_Q, nowTs - _T);
+        uint256 decayedQ = _applyDecay(aggregatedWeight, nowTs - lastSubmissionTime);
 
-        // Step 2: Store old values before any state updates
-        uint256 lastT = _Tof[msg.sender];  
-        uint256 oldWeight = _Wof[msg.sender];  
-        int256 oldPrice = _Pof[msg.sender];    
+        uint256 lastT = tof[msg.sender];  
+        uint256 oldWeight = wof[msg.sender];  
+        int256 oldPrice = pof[msg.sender];            
         
-        // Calculate decayed contributions
         uint256 timeSinceUser = nowTs - lastT;
-        uint256 userWeightDecayed = _applyDecay(oldWeight, timeSinceUser);
+        uint256 userWeightDecayed = _applyDecay(oldWeight, timeSinceUser);               // Calculate decayed contributions 
 
-        // Step 3: Calculate new weighted average
-        int256 numerator = _P * int256(decayedQ) - oldPrice * int256(userWeightDecayed);
+        int256 numerator = aggregatedPrice * int256(decayedQ) - oldPrice * int256(userWeightDecayed); // Calculate new weighted average
         uint256 newQ = decayedQ - userWeightDecayed + w;
         numerator += newValue * int256(w);
         int256 newP = numerator / int256(newQ);
         
-        // Step 4: Calculate reward 
-        uint256 rewardPool = (address(this).balance * reward) / DENOMINATOR;
-        uint256 Qprime = _decayQToNow();  // Current decayed global weight
+        uint256 rewardPool = (address(this).balance * REWARD) / DENOMINATOR;             // Calculate REWARD 
 
-        // activity factor: 1 - δ^(nowTs - lastT) using OLD timestamp
-        uint256 elapsedY = nowTs - lastT;  // Use stored old timestamp
-        uint256 activityDecay = _decayFactor(elapsedY);
+        uint256 activityDecay = _decayFactor(timeSinceUser);
         uint256 activityFactor = activityDecay >= 1e18 ? 0 : (1e18 - activityDecay);
 
-        // r = rewardPool * w * activityFactor / Q'
-        uint256 rewardToSubmitter = 0;
-        if (rewardPool > 0 && w > 0 && activityFactor > 0 && Qprime > 0) {
-            uint256 num = (w * activityFactor) / 1e18; // w * (1 - δ^Δy)
-            rewardToSubmitter = (alpha * rewardPool * num) / Qprime;                // If Qprime ≈ 0, no reward is given (system is effectively inactive)
+        uint256 rewardToSubmitter = 0;                                                   // r = rewardPool * w * activityFactor / Q'
+        if (rewardPool > 0 && w > 0 && activityFactor > 0 && decayedQ > 0) {
+            uint256 num = (w * activityFactor) / 1e18;                                   // w * (1 - δ^Δy)
+            rewardToSubmitter = (ALPHA * rewardPool * num) / decayedQ;                   // If decayedQ ≈ 0, no REWARD is given (system is effectively inactive)
         }
        
-        // pay
         if (rewardToSubmitter > 0) {
             (bool ok, ) = msg.sender.call{value: rewardToSubmitter}("");
-            require(ok, "reward transfer failed");
+            require(ok, "REWARD transfer failed");
         }
  
-        // Step 5: Update all state variables
-        _P = newP;
-        _Q = newQ;
-        _Pof[msg.sender] = newValue;
-        _Wof[msg.sender] = w;
-        _Tof[msg.sender] = nowTs;
-        _T = nowTs;
-        _latestValue = newValue;
-        submitters[msg.sender] = true;
+        // Update all state variables
+        aggregatedPrice = newP; aggregatedWeight = newQ;
+        pof[msg.sender] = newValue; wof[msg.sender] = w; tof[msg.sender] = nowTs;
+        lastSubmissionTime = nowTs; latestValue = newValue;
+        priceHistory[nowTs] = newP; latestValueHistory[nowTs] = newValue; priceTimestamps.push(nowTs);
         
-        // Step 6: Store price history
-        priceHistory[nowTs] = newP;
-        latestValueHistory[nowTs] = newValue;
-        priceTimestamps.push(nowTs);
-        
-        emit Submitted(msg.sender, newValue, w, rewardToSubmitter, nowTs);
-        emit ValueUpdated(newP, newValue, nowTs);
-        emit PriceHistoryUpdated(nowTs, newP, newValue);
+        emit PriceSubmitted(msg.sender, nowTs, newValue, newP, w, rewardToSubmitter);
     }
 
     function readValue() external notBlacklisted returns (int256) { 
-        _lastTimestamp = block.timestamp;
-        return _P; 
+        lastTimestamp = block.timestamp;
+        return aggregatedPrice; 
     }
     
     function readLatestValue() external notBlacklisted returns (int256) { 
-        _lastTimestamp = block.timestamp;
-        return _latestValue; 
+        lastTimestamp = block.timestamp;
+        return latestValue; 
     }
 
     function depositTokens(uint256 amount) external nonReentrant {
         require(!isBlacklisted[msg.sender], "Blacklisted");
         require(amount > 0, "Amount must be positive");
-        require(weightToken.transferFrom(msg.sender, address(this), amount), "Transfer failed");
+        require(WEIGHT_TOKEN.transferFrom(msg.sender, address(this), amount), "Transfer failed");
         
-        _lastTimestamp = block.timestamp;
+        lastTimestamp = block.timestamp;
         depositedTokens[msg.sender] += amount;
         totalDepositedTokens += amount;
         
         depositTimestamp[msg.sender] = block.timestamp;
-        
         if (lastOperationTimestamp[msg.sender] == 0) { lastOperationTimestamp[msg.sender] = block.timestamp; }
+        
+        _updateUserVoteWeights(msg.sender);
         emit TokenDeposited(msg.sender, amount);
     }
     
@@ -193,48 +163,31 @@ contract Oracle is Ownable, ReentrancyGuard {
         require(!isBlacklisted[msg.sender], "Blacklisted");
         require(amount > 0, "Amount must be positive");
         require(depositedTokens[msg.sender] >= amount, "Insufficient deposited tokens");
-        require(block.timestamp >= lastOperationTimestamp[msg.sender] + withdrawalLockingPeriod, "Tokens still in withdrawal locking period after last operation");
+        require(block.timestamp >= getTokenUnlockTime(msg.sender), "Tokens still in withdrawal locking period after last operation");
         
-        _lastTimestamp = block.timestamp;
-        require(weightToken.transfer(msg.sender, amount), "Transfer failed");
+        lastTimestamp = block.timestamp;
+        require(WEIGHT_TOKEN.transfer(msg.sender, amount), "Transfer failed");
         depositedTokens[msg.sender] -= amount;
         totalDepositedTokens -= amount;
         
+        _updateUserVoteWeights(msg.sender);
         emit TokenWithdrawn(msg.sender, amount);
     }
     
-    /// @notice Get the timestamp when user's tokens will be unlocked for withdrawal
-    function getWithdrawalUnlockTime(address user) external view returns (uint256) {
-        return lastOperationTimestamp[user] + withdrawalLockingPeriod;
-    }
-    
-    /// @notice Get the timestamp when user's tokens will be unlocked for governance operations
-    function getGovernanceUnlockTime(address user) external view returns (uint256) {
-        return depositTimestamp[user] + depositLockingPeriod;
-    }
-    
-    /// @notice Check if user's tokens are currently unlocked for withdrawal
-    function isWithdrawalUnlocked(address user) external view returns (bool) {
-        return block.timestamp >= lastOperationTimestamp[user] + withdrawalLockingPeriod;
-    }
-    
-    /// @notice Check if user's tokens are currently unlocked for governance operations
-    function isGovernanceUnlocked(address user) external view returns (bool) {
-        return block.timestamp >= depositTimestamp[user] + depositLockingPeriod;
-    }
 
-    // Blacklist/Whitelist governance
     function voteBlacklist(address target) external onlyTokenHolder {
         require(!hasVotedBlacklist[target][msg.sender], "Already voted");
         
         lastOperationTimestamp[msg.sender] = block.timestamp;
-        _lastTimestamp = block.timestamp;
+        lastTimestamp = block.timestamp;
         hasVotedBlacklist[target][msg.sender] = true;
         uint256 weight = depositedTokens[msg.sender];
         
         blacklistVotes[target] += weight;
+        blacklistVoteWeights[target][msg.sender] = weight;
+        userBlacklistVotes[msg.sender].push(target);
         
-        emit VotedBlacklist(target, msg.sender, true, weight);
+        emit Voted(target, msg.sender, true, weight);
         _updateBlacklistStatus(target);
     }
     
@@ -242,35 +195,56 @@ contract Oracle is Ownable, ReentrancyGuard {
         require(!hasVotedWhitelist[target][msg.sender], "Already voted");
         
         lastOperationTimestamp[msg.sender] = block.timestamp;
-        _lastTimestamp = block.timestamp;
+        lastTimestamp = block.timestamp;
         hasVotedWhitelist[target][msg.sender] = true;
         uint256 weight = depositedTokens[msg.sender];
         
         whitelistVotes[target] += weight;
+        whitelistVoteWeights[target][msg.sender] = weight;
+        userWhitelistVotes[msg.sender].push(target);
         
-        emit VotedWhitelist(target, msg.sender, true, weight);
+        emit Voted(target, msg.sender, false, weight);
         _updateBlacklistStatus(target);
     }
     
+    function _updateUserVoteWeights(address user) internal {
+        uint256 newWeight = depositedTokens[user];
+        
+        address[] storage blacklistTargets = userBlacklistVotes[user];          // Update blacklist votes
+        for (uint256 i = 0; i < blacklistTargets.length; i++) {
+            address target = blacklistTargets[i];
+            if (hasVotedBlacklist[target][user]) {
+                uint256 oldWeight = blacklistVoteWeights[target][user];
+                blacklistVotes[target] = blacklistVotes[target] - oldWeight + newWeight;
+                blacklistVoteWeights[target][user] = newWeight;
+                _updateBlacklistStatus(target);
+            }
+        }
+        
+        address[] storage whitelistTargets = userWhitelistVotes[user];          // Update whitelist votes
+        for (uint256 i = 0; i < whitelistTargets.length; i++) {
+            address target = whitelistTargets[i];
+            if (hasVotedWhitelist[target][user]) {
+                uint256 oldWeight = whitelistVoteWeights[target][user];
+                whitelistVotes[target] = whitelistVotes[target] - oldWeight + newWeight;
+                whitelistVoteWeights[target][user] = newWeight;
+                _updateBlacklistStatus(target);
+            }
+        }
+    }
+
     function _updateBlacklistStatus(address target) internal {
         uint256 blacklistVotesCount = blacklistVotes[target];
         uint256 whitelistVotesCount = whitelistVotes[target];
         uint256 totalVotes = blacklistVotesCount + whitelistVotesCount;
         
-        bool shouldBlacklist = blacklistVotesCount > whitelistVotesCount && totalVotes > quorum;
+        bool shouldBlacklist = blacklistVotesCount > whitelistVotesCount && totalVotes > QUORUM;
         bool wasBlacklisted = isBlacklisted[target];
         isBlacklisted[target] = shouldBlacklist;
         
-        // Emit appropriate event if status changed
-        if (!wasBlacklisted && shouldBlacklist) { emit Blacklisted(target); } 
-        else if (wasBlacklisted && !shouldBlacklist) { emit Whitelisted(target); }
-    }
-
-    function _decayQToNow() internal view returns (uint256) {
-        if (_Q == 0) return 0;
-        uint256 elapsed = block.timestamp - _T;     // Use _T for price submission time
-        uint256 f = _decayFactor(elapsed);          // returns δ^(elapsed) in 1e18 fixed-point
-        return (_Q * f) / 1e18;
+        if (wasBlacklisted != shouldBlacklist) {
+            emit BlacklistStatusChanged(target, shouldBlacklist);
+        }
     }
 
     function _applyDecay(uint256 value, uint256 elapsed) internal view returns (uint256) {
@@ -281,55 +255,22 @@ contract Oracle is Ownable, ReentrancyGuard {
 
     function _decayFactor(uint256 elapsed) internal view returns (uint256) {
         if (elapsed == 0) return WAD;
-        if (halfLifeSeconds == 0) return WAD;   // no decay if HL=0
+        if (HALF_LIFE_SECONDS == 0) return WAD;           // no decay if HL=0
 
-        uint256 scaledX = (elapsed * FP5) / halfLifeSeconds;
+        uint256 scaledX = (elapsed * DENOMINATOR) / HALF_LIFE_SECONDS;
+        if (scaledX >= 61 * DENOMINATOR) return 1;      // If x >= 61 -> ~0 (2^-61 ~ 4.3e-19) ; ~0 in 1e18 scale
 
-        if (scaledX >= 61 * FP5) return 1;      // If x >= 61 -> ~0 (2^-61 ~ 4.3e-19) ; ~0 in 1e18 scale
+        uint256 k    = scaledX / DENOMINATOR;           // integer part
+        uint256 frac = scaledX % DENOMINATOR;           // 0..99999 (fractional 5dp)
 
-        uint256 k    = scaledX / FP5;           // integer part
-        uint256 frac = scaledX % FP5;           // 0..99999 (fractional 5dp)
+        if (frac == 0) return pow2NegIntWad[k];
 
-        if (frac == 0) return POW2_NEG_INT_WAD[k];
-
-        uint256 hi = POW2_NEG_INT_WAD[k];
-        uint256 lo = (k < 60) ? POW2_NEG_INT_WAD[k + 1] : 0;
-        unchecked {return hi - ((hi - lo) * frac) / FP5;}
-    }
-
-    
-    function getVotes(address target) external view returns (uint256 blacklistVotesCount, uint256 whitelistVotesCount) { return (blacklistVotes[target], whitelistVotes[target]); }
-    /// @notice Check if an address has any votes for blacklisting (either blacklist)
-    function hasBlacklistVotes(address target) external view returns (uint256) {
-        return blacklistVotes[target];
-    }
-    /// @notice Check if an address has any votes for whitelisting (either whitelist)
-    function hasWhitelistVotes(address target) external view returns (uint256) {
-        return whitelistVotes[target];
-    }
-    /// @notice Get all submitter-related info for an address to track their activity
-    function getSubmitterInfo(address submitter) external view returns ( bool hasEverSubmitted, int256 lastSubmittedPrice, uint256 lastWeight, uint256 lastSubmissionTime) {
-        return (submitters[submitter], _Pof[submitter], _Wof[submitter], _Tof[submitter]);
+        uint256 hi = pow2NegIntWad[k];
+        uint256 lo = (k < 60) ? pow2NegIntWad[k + 1] : 0;
+        unchecked {return hi - ((hi - lo) * frac) / DENOMINATOR;}
     }
     
-    // Price history getter functions
-    
-    /// @notice Get the total number of price history entries
-    function getPriceHistoryLength() external view returns (uint256) {
-        return priceTimestamps.length;
-    }
-    
-    /// @notice Get a range of price history entries
-    /// @param startIndex Starting index (inclusive)
-    /// @param endIndex Ending index (exclusive, like array slicing)
-    /// @return timestamps Array of timestamps
-    /// @return aggregatedPrices Array of aggregated prices
-    /// @return latestValues Array of latest raw submissions
-    function getPriceHistoryRange(uint256 startIndex, uint256 endIndex) external view returns (
-        uint256[] memory timestamps, 
-        int256[] memory aggregatedPrices, 
-        int256[] memory latestValues
-    ) {
+    function getPriceHistoryRange(uint256 startIndex, uint256 endIndex) external view returns ( uint256[] memory timestamps,  int256[] memory aggregatedPrices, int256[] memory latestValues) {
         require(startIndex < priceTimestamps.length, "Start index out of bounds");
         require(endIndex <= priceTimestamps.length, "End index out of bounds");
         require(startIndex < endIndex, "Invalid range");
@@ -346,4 +287,10 @@ contract Oracle is Ownable, ReentrancyGuard {
             latestValues[i] = latestValueHistory[timestamp];
         }
     }
+
+    function getTokenUnlockTime(address user) public view returns (uint256) { return lastOperationTimestamp[user] + WITHDRAWAL_LOCKING_PERIOD; }
+    function hasBlacklistVotes(address target) external view returns (uint256) { return blacklistVotes[target]; }
+    function hasWhitelistVotes(address target) external view returns (uint256) { return whitelistVotes[target]; }
+    function getSubmitterInfo(address submitter) external view returns (int256 lastSubmittedPrice, uint256 lastWeight, uint256 lastSubmittedTime) { return (pof[submitter], wof[submitter], tof[submitter]); }
+    function getPriceHistoryLength() external view returns (uint256) { return priceTimestamps.length; }
 }

@@ -20,7 +20,6 @@ contract Oracle is Ownable, ReentrancyGuard {
     
     mapping(address => uint256) public lockedTokens;            // Tokens locked for governance operations
     mapping(address => uint256) public unlockedTokens;          // Tokens available for withdrawal
-    mapping(address => uint256) public lockedForWithdrawal;     // Tokens locked after operations, waiting for withdrawal unlock
     uint256 public totalDepositedTokens;
     
     mapping(address => uint256) public depositTimestamp;        // when user last deposited tokens
@@ -30,7 +29,7 @@ contract Oracle is Ownable, ReentrancyGuard {
 
     mapping(address => int256) private pof;                     // P(x): last submitted price by x
     mapping(address => uint256) private wof;                    // W(x): weight of x
-    mapping(address => uint256) private tof;                    // T(x): last submission time of x
+    mapping(address => uint256) private tof;                    // T(x): last submission time of x 
 
     
     // Price history tracking
@@ -87,7 +86,7 @@ contract Oracle is Ownable, ReentrancyGuard {
         uint256 nowTs = block.timestamp;
         lastOperationTimestamp[msg.sender] = nowTs;
         lastTimestamp = nowTs;
-        uint256 w = lockedTokens[msg.sender]; // Use locked tokens as weight
+        uint256 w = lockedTokens[msg.sender];                                                        // Use locked tokens as weight
 
         uint256 decayedQ = DecayLib.applyDecay(aggregatedWeight, nowTs - lastSubmissionTime, HALF_LIFE_SECONDS);
 
@@ -96,24 +95,15 @@ contract Oracle is Ownable, ReentrancyGuard {
         int256 oldPrice = pof[msg.sender];            
         
         uint256 timeSinceUser = nowTs - lastT;
-        uint256 userWeightDecayed = DecayLib.applyDecay(oldWeight, timeSinceUser, HALF_LIFE_SECONDS);               // Calculate decayed contributions 
+        uint256 userWeightDecayed = DecayLib.applyDecay(oldWeight, timeSinceUser, HALF_LIFE_SECONDS); // Calculate decayed contributions 
 
         int256 numerator = aggregatedValue * int256(decayedQ) - oldPrice * int256(userWeightDecayed); // Calculate new weighted average
         uint256 newQ = decayedQ - userWeightDecayed + w;
         numerator += newValue * int256(w);
         int256 newP = numerator / int256(newQ);
         
-        uint256 rewardPool = (address(this).balance * REWARD) / DENOMINATOR;             // Calculate REWARD 
-
-        uint256 rewardToSubmitter = DecayLib.calculateReward(
-            rewardPool,
-            w,
-            timeSinceUser,
-            decayedQ,
-            ALPHA,
-            HALF_LIFE_SECONDS
-        );
-       
+        uint256 rewardPool = (address(this).balance * REWARD) / DENOMINATOR;                          // Calculate REWARD 
+        uint256 rewardToSubmitter = DecayLib.calculateReward( rewardPool, w, timeSinceUser, decayedQ, ALPHA, HALF_LIFE_SECONDS );
         if (rewardToSubmitter > 0) {
             (bool ok, ) = msg.sender.call{value: rewardToSubmitter}("");
             require(ok, "REWARD transfer failed");
@@ -124,9 +114,6 @@ contract Oracle is Ownable, ReentrancyGuard {
         pof[msg.sender] = newValue; wof[msg.sender] = w; tof[msg.sender] = nowTs;
         lastSubmissionTime = nowTs; latestValue = newValue;
         priceHistory[nowTs] = newP; latestValueHistory[nowTs] = newValue; priceTimestamps.push(nowTs);
-        
-        // Lock tokens for withdrawal after operation
-        _lockTokensForWithdrawal(msg.sender);
         
         emit ValueSubmitted(msg.sender, nowTs, newValue, newP, w, rewardToSubmitter);
     }
@@ -144,56 +131,47 @@ contract Oracle is Ownable, ReentrancyGuard {
     function depositTokens(uint256 amount) external nonReentrant {
         require(amount > 0, "Amount must be positive");
         require(WEIGHT_TOKEN.transferFrom(msg.sender, address(this), amount), "Transfer failed");
-        
         _unlockTokensIfPossible(msg.sender);
         
-        lastTimestamp = block.timestamp;
-        lockedTokens[msg.sender] += amount; // New deposits are locked for governance
+        uint256 nowTs = block.timestamp;
+        lockedTokens[msg.sender] += amount; // New deposits are locked for governance and operations
         totalDepositedTokens += amount;
         
-        depositTimestamp[msg.sender] = block.timestamp;
-        if (lastOperationTimestamp[msg.sender] == 0) { lastOperationTimestamp[msg.sender] = block.timestamp; }
-        
-        uint256 totalUserTokens = lockedTokens[msg.sender] + unlockedTokens[msg.sender] + lockedForWithdrawal[msg.sender];
-        GovernanceLib.updateUserVoteWeights(governance, msg.sender, totalUserTokens, QUORUM);
+        depositTimestamp[msg.sender] = nowTs;
+        lastOperationTimestamp[msg.sender] = nowTs;
+        lastTimestamp = nowTs;
         emit TokenDeposited(msg.sender, amount);
     }
     
     function withdrawTokens(uint256 amount) external nonReentrant {
-        require(!GovernanceLib.isBlacklisted(governance, msg.sender), "Blacklisted");
         require(amount > 0, "Amount must be positive");
-        
         _unlockTokensIfPossible(msg.sender);
-        
         require(unlockedTokens[msg.sender] >= amount, "Insufficient unlocked tokens");
+        require(lastOperationTimestamp[msg.sender] + WITHDRAWAL_LOCKING_PERIOD <= block.timestamp, "Withdrawal locking period not elapsed");
         
         lastTimestamp = block.timestamp;
         require(WEIGHT_TOKEN.transfer(msg.sender, amount), "Transfer failed");
         unlockedTokens[msg.sender] -= amount;
         totalDepositedTokens -= amount;
         
-        uint256 totalUserTokens = lockedTokens[msg.sender] + unlockedTokens[msg.sender] + lockedForWithdrawal[msg.sender];
-        GovernanceLib.updateUserVoteWeights(governance, msg.sender, totalUserTokens, QUORUM);
+        GovernanceLib.updateUserVoteWeights(governance, msg.sender, unlockedTokens[msg.sender], QUORUM);
         emit TokenWithdrawn(msg.sender, amount);
     }
     
+    function updateUserVoteWeights() external onlyTokenHolder {
+        GovernanceLib.updateUserVoteWeights(governance, msg.sender, unlockedTokens[msg.sender], QUORUM);
+    }
 
     function voteBlacklist(address target) external onlyTokenHolder {
         lastOperationTimestamp[msg.sender] = block.timestamp;
         lastTimestamp = block.timestamp;
-        uint256 weight = lockedTokens[msg.sender];
-        
-        GovernanceLib.voteBlacklist(governance, target, msg.sender, weight, QUORUM);
-        _lockTokensForWithdrawal(msg.sender);
+        GovernanceLib.voteBlacklist(governance, target, msg.sender, unlockedTokens[msg.sender], QUORUM);  // Unlocked tokens are used for voting as weight
     }
     
     function voteWhitelist(address target) external onlyTokenHolder {
         lastOperationTimestamp[msg.sender] = block.timestamp;
         lastTimestamp = block.timestamp;
-        uint256 weight = lockedTokens[msg.sender];
-        
-        GovernanceLib.voteWhitelist(governance, target, msg.sender, weight, QUORUM);
-        _lockTokensForWithdrawal(msg.sender);
+        GovernanceLib.voteWhitelist(governance, target, msg.sender, unlockedTokens[msg.sender], QUORUM);   // Unlocked tokens are used for voting as weight
     }
 
     // Unlock tokens if the locking periods have elapsed
@@ -201,19 +179,6 @@ contract Oracle is Ownable, ReentrancyGuard {
         if (block.timestamp >= depositTimestamp[user] + OPERATION_LOCKING_PERIOD && lockedTokens[user] > 0) {
             unlockedTokens[user] += lockedTokens[user];
             lockedTokens[user] = 0;
-        }
-        
-        if (block.timestamp >= lastOperationTimestamp[user] + WITHDRAWAL_LOCKING_PERIOD && lockedForWithdrawal[user] > 0) {
-            unlockedTokens[user] += lockedForWithdrawal[user];
-            lockedForWithdrawal[user] = 0;
-        }
-    }
-    
-    // Lock tokens for withdrawal after performing an operation
-    function _lockTokensForWithdrawal(address user) internal {
-        if (unlockedTokens[user] > 0) {
-            lockedForWithdrawal[user] += unlockedTokens[user];
-            unlockedTokens[user] = 0;
         }
     }
     

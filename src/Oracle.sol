@@ -34,7 +34,7 @@ contract Oracle is Ownable, ReentrancyGuard {
     
     // Price history tracking
     mapping(uint256 => int256) public priceHistory;              // timestamp => aggregated price at that time
-    mapping(uint256 => int256) public latestValueHistory;        // timestamp => latest raw submission at that time
+    mapping(uint256 => int256) public latestValueHistory;        // timestamp => latest raw submission at that time 
     uint256[] public priceTimestamps;                            // array of timestamps when price was updated
 
     uint256 private constant DENOMINATOR = 1e5;
@@ -62,7 +62,7 @@ contract Oracle is Ownable, ReentrancyGuard {
     }
     modifier onlyTokenHolder() {
         _unlockTokensIfPossible(msg.sender);
-        require(lockedTokens[msg.sender] > 0, "No locked tokens for governance");
+        require(unlockedTokens[msg.sender] > 0, "No locked tokens for governance");
         _;
     }
 

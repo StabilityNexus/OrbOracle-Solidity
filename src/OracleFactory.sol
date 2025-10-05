@@ -20,17 +20,19 @@ contract OracleFactory is Ownable {
 
     /// @notice Anyone can create a new Oracle using an existing ERC20 token.
     /// @param weightToken Address of the ERC20 token to be used for weighting.
-    /// @param reward Portion of ETH reserve paid to submitters (out of 10000).
-    /// @param halfLifeSeconds Time-decay (for default EWMA). You can set 0 and turn on simple mode later.
-    /// @param quorum Quorum for blacklisting (out of 10000, e.g., 5000 = 50%).
-    /// @param depositLockingPeriod Time in seconds that tokens must be locked after deposit before governance operations.
+    /// @param reward Portion of ETH reserve paid to submitters.
+    /// @param halfLifeSeconds Time-decay (for default EWMA). You can set 0 and turn on simple mode.
+    /// @param quorum Quorum for blacklisting 
+    /// @param operationLockingPeriod Time in seconds that tokens must be locked after deposit before governance operations.
     /// @param withdrawalLockingPeriod Time in seconds that tokens must be locked after last operation before withdrawal.
     function createOracle(
+        string memory name,
+        string memory description,
         address weightToken,
         uint256 reward,
         uint256 halfLifeSeconds,
         uint256 quorum,
-        uint256 depositLockingPeriod,
+        uint256 operationLockingPeriod,
         uint256 withdrawalLockingPeriod,
         uint256 alpha
     ) external returns (address oracle, address token)
@@ -39,11 +41,13 @@ contract OracleFactory is Ownable {
         
         Oracle o = new Oracle(
             msg.sender,      // owner (oracle creator)
+            name,
+            description,
             weightToken,
             reward,
             halfLifeSeconds,
             quorum,
-            depositLockingPeriod,
+            operationLockingPeriod,
             withdrawalLockingPeriod,
             alpha
         );

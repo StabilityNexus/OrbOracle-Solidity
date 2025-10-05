@@ -86,7 +86,7 @@ contract Oracle is Ownable, ReentrancyGuard {
         uint256 nowTs = block.timestamp;
         lastOperationTimestamp[msg.sender] = nowTs;
         lastTimestamp = nowTs;
-        uint256 w = lockedTokens[msg.sender];                                                        // Use locked tokens as weight
+        uint256 w = unlockedTokens[msg.sender];                                                        // Use locked tokens as weight
 
         uint256 decayedQ = DecayLib.applyDecay(aggregatedWeight, nowTs - lastSubmissionTime, HALF_LIFE_SECONDS);
 

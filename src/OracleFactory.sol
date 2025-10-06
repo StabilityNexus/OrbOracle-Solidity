@@ -23,8 +23,8 @@ contract OracleFactory is Ownable {
     /// @param reward Portion of ETH reserve paid to submitters.
     /// @param halfLifeSeconds Time-decay (for default EWMA). You can set 0 and turn on simple mode.
     /// @param quorum Quorum for blacklisting 
-    /// @param operationLockingPeriod Time in seconds that tokens must be locked after deposit before governance operations.
-    /// @param withdrawalLockingPeriod Time in seconds that tokens must be locked after last operation before withdrawal.
+    /// @param depositLockingPeriod Time in seconds that tokens must be locked after deposit before governance operations.
+    /// @param withdrawalLockingPeriod Time in seconds that tokens must be locked after last operation before withdrawal. 
     function createOracle(
         string memory name,
         string memory description,
@@ -32,7 +32,7 @@ contract OracleFactory is Ownable {
         uint256 reward,
         uint256 halfLifeSeconds,
         uint256 quorum,
-        uint256 operationLockingPeriod,
+        uint256 depositLockingPeriod,
         uint256 withdrawalLockingPeriod,
         uint256 alpha
     ) external returns (address oracle, address token)
@@ -47,7 +47,7 @@ contract OracleFactory is Ownable {
             reward,
             halfLifeSeconds,
             quorum,
-            operationLockingPeriod,
+            depositLockingPeriod,
             withdrawalLockingPeriod,
             alpha
         );

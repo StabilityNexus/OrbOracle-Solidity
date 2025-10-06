@@ -18,7 +18,7 @@ contract Oracle is Ownable, ReentrancyGuard {
 
     IERC20 public immutable WEIGHT_TOKEN;
     
-    mapping(address => uint256) public lockedTokens;            // Tokens locked for governance operations
+    mapping(address => uint256) public lockedTokens;            // Tokens locked for operations
     mapping(address => uint256) public unlockedTokens;          // Tokens available for withdrawal
     uint256 public totalDepositedTokens;
     
@@ -39,20 +39,18 @@ contract Oracle is Ownable, ReentrancyGuard {
 
     uint256 private constant DENOMINATOR = 1e5;
 
-    int256  private _value;                                      // aggregated value (e.g., EWMA)
     int256  private latestValue;                                 // most recent raw submission
-    int256  private aggregatedValue;                             // last average price (decayed weighted mean) 
+    int256  private aggregatedValue;                             // last aggregated price (decayed weighted mean) 
     uint256 private aggregatedWeight;                            // last decayed total weight
     uint256 public lastSubmissionTime;                           // Global last update time of a price submission
     uint256 public lastTimestamp;                                // Global last update time of a oracle operation
     string public name;
     string public description;
-
-    // Aggregation config -> HALF_LIFE_SECONDS controls time-decay in default EWMA formula
-    uint256 public immutable OPERATION_LOCKING_PERIOD;              // seconds that tokens must be locked after deposit before operations
+    
+    uint256 public immutable DEPOSIT_LOCKING_PERIOD;              // seconds that tokens must be locked after deposit before operations
     uint256 public immutable WITHDRAWAL_LOCKING_PERIOD;           // seconds that tokens must be locked after last operation before withdrawal
     uint256 public immutable REWARD; 
-    uint256 public immutable HALF_LIFE_SECONDS;
+    uint256 public immutable HALF_LIFE_SECONDS;                  // Aggregation config -> HALF_LIFE_SECONDS controls time-decay in default EWMA formula
     uint256 public immutable QUORUM;                              // required votes >= QUORUM% of totalDepositedTokens
     uint256 public immutable ALPHA;
 
@@ -69,7 +67,7 @@ contract Oracle is Ownable, ReentrancyGuard {
     constructor(address owner_, string memory name_,string memory description_, address weightToken_,uint256 reward_,uint256 halfLifeSeconds_,uint256 quorum_,uint256 depositLockingPeriod_,uint256 withdrawalLockingPeriod_,uint256 alpha_) Ownable(owner_) {
         require(weightToken_ != address(0), "Invalid token address");
         WEIGHT_TOKEN = IERC20(weightToken_); REWARD = reward_; HALF_LIFE_SECONDS = halfLifeSeconds_;
-        QUORUM = quorum_; OPERATION_LOCKING_PERIOD = depositLockingPeriod_; WITHDRAWAL_LOCKING_PERIOD = withdrawalLockingPeriod_;
+        QUORUM = quorum_; DEPOSIT_LOCKING_PERIOD = depositLockingPeriod_; WITHDRAWAL_LOCKING_PERIOD = withdrawalLockingPeriod_;
         lastTimestamp = block.timestamp; lastSubmissionTime = block.timestamp; ALPHA = alpha_; name = name_; description = description_;
     }
 
@@ -86,7 +84,7 @@ contract Oracle is Ownable, ReentrancyGuard {
         uint256 nowTs = block.timestamp;
         lastOperationTimestamp[msg.sender] = nowTs;
         lastTimestamp = nowTs;
-        uint256 w = unlockedTokens[msg.sender];                                                        // Use locked tokens as weight
+        uint256 w = unlockedTokens[msg.sender];                                                        // Using unlocked tokens as weight
 
         uint256 decayedQ = DecayLib.applyDecay(aggregatedWeight, nowTs - lastSubmissionTime, HALF_LIFE_SECONDS);
 
@@ -176,7 +174,7 @@ contract Oracle is Ownable, ReentrancyGuard {
 
     // Unlock tokens if the locking periods have elapsed
     function _unlockTokensIfPossible(address user) internal {
-        if (block.timestamp >= depositTimestamp[user] + OPERATION_LOCKING_PERIOD && lockedTokens[user] > 0) {
+        if (block.timestamp >= depositTimestamp[user] + DEPOSIT_LOCKING_PERIOD && lockedTokens[user] > 0) {
             unlockedTokens[user] += lockedTokens[user];
             lockedTokens[user] = 0;
         }

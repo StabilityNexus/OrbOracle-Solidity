@@ -4,6 +4,8 @@ pragma solidity ^0.8.20;
 import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Oracle} from "./Oracle.sol";
 
+error InvalidWeightToken();
+
 contract OracleFactory is Ownable {
     event OracleCreated(address indexed oracle, address indexed creator, address token);
 
@@ -20,16 +22,15 @@ contract OracleFactory is Ownable {
 
     /// @notice Anyone can create a new Oracle using an existing ERC20 token.
     /// @param weightToken Address of the ERC20 token to be used for weighting.
-    /// @param reward Portion of ETH reserve paid to submitters.
     /// @param halfLifeSeconds Time-decay (for default EWMA). You can set 0 and turn on simple mode.
     /// @param quorum Quorum for blacklisting 
     /// @param depositLockingPeriod Time in seconds that tokens must be locked after deposit before governance operations.
     /// @param withdrawalLockingPeriod Time in seconds that tokens must be locked after last operation before withdrawal. 
+    /// @param alpha Basis point parameter used for rewards and blacklist thresholding.
     function createOracle(
         string memory name,
         string memory description,
         address weightToken,
-        uint256 reward,
         uint256 halfLifeSeconds,
         uint256 quorum,
         uint256 depositLockingPeriod,
@@ -37,14 +38,13 @@ contract OracleFactory is Ownable {
         uint256 alpha
     ) external returns (address oracle, address token)
     {
-        require(weightToken != address(0), "Invalid token address");
+        if (weightToken == address(0)) revert InvalidWeightToken();
         
         Oracle o = new Oracle(
             msg.sender,      // owner (oracle creator)
             name,
             description,
             weightToken,
-            reward,
             halfLifeSeconds,
             quorum,
             depositLockingPeriod,

@@ -33,10 +33,10 @@ library DecayLib {
         if (halfLifeSeconds == 0) return WAD; // no decay if HL=0
 
         uint256 scaledX = (elapsed * DENOMINATOR) / halfLifeSeconds;
-        if (scaledX >= 61 * DENOMINATOR) return 1; // If x >= 61 -> ~0 (2^-61 ~ 4.3e-19) ; ~0 in 1e18 scale
+        if (scaledX >= 61 * DENOMINATOR) return 1; 
 
         uint256 k = scaledX / DENOMINATOR; // integer part
-        uint256 frac = scaledX % DENOMINATOR; // 0..99999 (fractional 5dp)
+        uint256 frac = scaledX % DENOMINATOR; 
 
         if (frac == 0) return getPow2NegInt(k);
 
@@ -57,14 +57,14 @@ library DecayLib {
      * @dev Calculate reward based on activity and weight
      * @param rewardPool Total reward pool available
      * @param totalWeight Total decayed weight
-     * @param alpha Alpha parameter for reward calculation
+     * @param halfLifeSeconds Half-life driving the activity adjustment
      */
-    function calculateReward( uint256 rewardPool, uint256 weight, uint256 elapsed, uint256 totalWeight, uint256 alpha, uint256 halfLifeSeconds ) external pure returns (uint256 reward) {
+    function calculateReward( uint256 rewardPool, uint256 weight, uint256 elapsed, uint256 totalWeight, uint256 halfLifeSeconds ) external pure returns (uint256 reward) {
         if (rewardPool == 0 || weight == 0 || totalWeight == 0) return 0;
         
         uint256 activityFac = activityFactor(elapsed, halfLifeSeconds);
         if (activityFac == 0) return 0;
         uint256 num = (weight * activityFac) / WAD; // w * (1 - δ^Δy)
-        return (alpha * rewardPool * num) / totalWeight;
+        return (rewardPool * num) / totalWeight;
     }
 }

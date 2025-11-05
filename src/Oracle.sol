@@ -18,6 +18,8 @@ error WithdrawalLockActive(uint256 unlockTime);
 error PriceHistoryStartOutOfBounds();
 error PriceHistoryEndOutOfBounds();
 error InvalidPriceHistoryRange();
+error EmptyHistory();
+error InvalidSampleSize();
 
 contract Oracle is Ownable, ReentrancyGuard {
 
@@ -47,6 +49,8 @@ contract Oracle is Ownable, ReentrancyGuard {
     mapping(uint256 => int256) public priceHistory;              // timestamp => aggregated price at that time
     mapping(uint256 => int256) public latestValueHistory;        // timestamp => latest raw submission at that time 
     uint256[] public priceTimestamps;                            // array of timestamps when price was updated
+    int256[] private averageHistory;                             // historical aggregated values sampled at fixed interval
+    uint256[] private averageHistoryTimestamps;                  // timestamps corresponding to entries in averageHistory
 
     uint256 private constant DENOMINATOR = 1e5;
 
@@ -63,6 +67,7 @@ contract Oracle is Ownable, ReentrancyGuard {
     uint256 public immutable HALF_LIFE_SECONDS;                   // Aggregation config -> HALF_LIFE_SECONDS controls time-decay
     uint256 public immutable QUORUM;                              // required votes >= QUORUM% of totalDepositedTokens
     uint256 public immutable ALPHA;
+    uint256 public immutable GAMMA;                               // minimal interval between entries recorded for extremes
 
     modifier notBlacklisted() {
         if (GovernanceLib.isBlacklisted(governance, msg.sender)) revert BlacklistedCaller();
@@ -74,11 +79,12 @@ contract Oracle is Ownable, ReentrancyGuard {
         _;
     }
 
-    constructor(address owner_, string memory name_,string memory description_, address weightToken_,uint256 halfLifeSeconds_,uint256 quorum_,uint256 depositLockingPeriod_,uint256 withdrawalLockingPeriod_,uint256 alpha_) Ownable(owner_) {
+    constructor(address owner_, string memory name_,string memory description_, address weightToken_,uint256 halfLifeSeconds_,uint256 quorum_,uint256 depositLockingPeriod_,uint256 withdrawalLockingPeriod_,uint256 alpha_, uint256 gamma_) Ownable(owner_) {
         if (weightToken_ == address(0)) revert InvalidWeightTokenAddress();
         WEIGHT_TOKEN = IERC20(weightToken_); HALF_LIFE_SECONDS = halfLifeSeconds_;
         QUORUM = quorum_; DEPOSIT_LOCKING_PERIOD = depositLockingPeriod_; WITHDRAWAL_LOCKING_PERIOD = withdrawalLockingPeriod_;
         lastTimestamp = block.timestamp; lastSubmissionTime = block.timestamp; ALPHA = alpha_; name = name_; description = description_;
+        GAMMA = gamma_;
     }
 
     receive() external payable {
@@ -122,6 +128,17 @@ contract Oracle is Ownable, ReentrancyGuard {
         pof[msg.sender] = newValue; wof[msg.sender] = w; tof[msg.sender] = nowTs;
         lastSubmissionTime = nowTs; latestValue = newValue;
         priceHistory[nowTs] = newP; latestValueHistory[nowTs] = newValue; priceTimestamps.push(nowTs);
+
+        if (averageHistory.length == 0) {
+            averageHistory.push(newP);
+            averageHistoryTimestamps.push(nowTs);
+        } else {
+            uint256 lastRecordedTs = averageHistoryTimestamps[averageHistoryTimestamps.length - 1];
+            if (nowTs > lastRecordedTs + GAMMA) {
+                averageHistory.push(newP);
+                averageHistoryTimestamps.push(nowTs);
+            }
+        }
         
         emit ValueSubmitted(msg.sender, nowTs, newValue, newP, w, rewardToSubmitter);
     }
@@ -134,6 +151,42 @@ contract Oracle is Ownable, ReentrancyGuard {
     function readLatestValue() external notBlacklisted returns (int256) { 
         lastTimestamp = block.timestamp;
         return latestValue; 
+    }
+
+    function readMaxValue(uint256 sampleSize) external notBlacklisted returns (int256) {
+        lastTimestamp = block.timestamp;
+        if (averageHistory.length == 0) revert EmptyHistory();
+        if (sampleSize == 0) revert InvalidSampleSize();
+
+        uint256 historyLength = averageHistory.length;
+        if (sampleSize > historyLength) sampleSize = historyLength;
+
+        int256 maxValue = averageHistory[historyLength - 1];
+        for (uint256 i = 1; i < sampleSize; ++i) {
+            int256 candidate = averageHistory[historyLength - 1 - i];
+            if (candidate > maxValue) {
+                maxValue = candidate;
+            }
+        }
+        return maxValue;
+    }
+
+    function readMinValue(uint256 sampleSize) external notBlacklisted returns (int256) {
+        lastTimestamp = block.timestamp;
+        if (averageHistory.length == 0) revert EmptyHistory();
+        if (sampleSize == 0) revert InvalidSampleSize();
+
+        uint256 historyLength = averageHistory.length;
+        if (sampleSize > historyLength) sampleSize = historyLength;
+
+        int256 minValue = averageHistory[historyLength - 1];
+        for (uint256 i = 1; i < sampleSize; ++i) {
+            int256 candidate = averageHistory[historyLength - 1 - i];
+            if (candidate < minValue) {
+                minValue = candidate;
+            }
+        }
+        return minValue;
     }
 
     function depositTokens(uint256 amount) external nonReentrant {

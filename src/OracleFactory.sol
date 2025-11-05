@@ -27,6 +27,7 @@ contract OracleFactory is Ownable {
     /// @param depositLockingPeriod Time in seconds that tokens must be locked after deposit before governance operations.
     /// @param withdrawalLockingPeriod Time in seconds that tokens must be locked after last operation before withdrawal. 
     /// @param alpha Basis point parameter used for rewards and blacklist thresholding.
+    /// @param gamma Minimum interval between stored historical averages for extrema queries.
     function createOracle(
         string memory name,
         string memory description,
@@ -35,7 +36,8 @@ contract OracleFactory is Ownable {
         uint256 quorum,
         uint256 depositLockingPeriod,
         uint256 withdrawalLockingPeriod,
-        uint256 alpha
+        uint256 alpha,
+        uint256 gamma
     ) external returns (address oracle, address token)
     {
         if (weightToken == address(0)) revert InvalidWeightToken();
@@ -49,7 +51,8 @@ contract OracleFactory is Ownable {
             quorum,
             depositLockingPeriod,
             withdrawalLockingPeriod,
-            alpha
+            alpha,
+            gamma
         );
 
         oracle = address(o);

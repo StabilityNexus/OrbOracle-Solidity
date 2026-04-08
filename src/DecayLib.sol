@@ -53,18 +53,4 @@ library DecayLib {
         return decay >= WAD ? 0 : (WAD - decay);
     }
     
-    /**
-     * @dev Calculate reward based on activity and weight
-     * @param rewardPool Total reward pool available
-     * @param totalWeight Total decayed weight
-     * @param halfLifeSeconds Half-life driving the activity adjustment
-     */
-    function calculateReward( uint256 rewardPool, uint256 weight, uint256 elapsed, uint256 totalWeight, uint256 halfLifeSeconds ) external pure returns (uint256 reward) {
-        if (rewardPool == 0 || weight == 0 || totalWeight == 0) return 0;
-        
-        uint256 activityFac = activityFactor(elapsed, halfLifeSeconds);
-        if (activityFac == 0) return 0;
-        uint256 num = (weight * activityFac) / WAD; // w * (1 - δ^Δy)
-        return (rewardPool * num) / totalWeight;
-    }
 }

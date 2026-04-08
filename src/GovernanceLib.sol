@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-uint256 constant GOVERNANCE_DENOMINATOR = 1e5;
+uint256 constant DENOMINATOR = 1e5;
 
 error AlreadyVotedBlacklist(address target, address voter);
 error AlreadyVotedWhitelist(address target, address voter);
@@ -25,7 +25,7 @@ library GovernanceLib {
     event Voted(address indexed target, address indexed voter, bool isBlacklist, uint256 weight);
     event BlacklistStatusChanged(address indexed target, bool isBlacklisted);
 
-    function voteBlacklist( GovernanceData storage data, address target, address voter, uint256 weight, uint256 quorum, uint256 totalSupply, uint256 alpha ) external {
+    function voteBlacklist( GovernanceData storage data, address target, address voter, uint256 weight, uint256 totalSupply, uint256 q ) external {
         if (data.hasVotedBlacklist[target][voter]) revert AlreadyVotedBlacklist(target, voter);
 
         data.hasVotedBlacklist[target][voter] = true;
@@ -34,10 +34,10 @@ library GovernanceLib {
         data.userBlacklistVotes[voter].push(target);
 
         emit Voted(target, voter, true, weight);
-        _updateBlacklistStatus(data, target, quorum, totalSupply, alpha);
+        _updateBlacklistStatus(data, target, totalSupply, q);
     }
 
-    function voteWhitelist( GovernanceData storage data, address target, address voter, uint256 weight, uint256 quorum, uint256 totalSupply, uint256 alpha ) external {
+    function voteWhitelist( GovernanceData storage data, address target, address voter, uint256 weight, uint256 totalSupply, uint256 q ) external {
         if (data.hasVotedWhitelist[target][voter]) revert AlreadyVotedWhitelist(target, voter);
 
         data.hasVotedWhitelist[target][voter] = true;
@@ -46,10 +46,10 @@ library GovernanceLib {
         data.userWhitelistVotes[voter].push(target);
 
         emit Voted(target, voter, false, weight);
-        _updateBlacklistStatus(data, target, quorum, totalSupply, alpha);
+        _updateBlacklistStatus(data, target, totalSupply, q);
     }
 
-    function updateUserVoteWeights( GovernanceData storage data, address user, uint256 newWeight, uint256 quorum, uint256 totalSupply, uint256 alpha) external {
+    function updateUserVoteWeights( GovernanceData storage data, address user, uint256 newWeight, uint256 totalSupply, uint256 q) external {
         // Update blacklist votes
         address[] storage blacklistTargets = data.userBlacklistVotes[user];
         for (uint256 i = 0; i < blacklistTargets.length; i++) {
@@ -58,7 +58,7 @@ library GovernanceLib {
                 uint256 oldWeight = data.blacklistVoteWeights[target][user];
                 data.blacklistVotes[target] = data.blacklistVotes[target] - oldWeight + newWeight;
                 data.blacklistVoteWeights[target][user] = newWeight;
-                _updateBlacklistStatus(data, target, quorum, totalSupply, alpha);
+                _updateBlacklistStatus(data, target, totalSupply, q);
             }
         }
 
@@ -70,22 +70,19 @@ library GovernanceLib {
                 uint256 oldWeight = data.whitelistVoteWeights[target][user];
                 data.whitelistVotes[target] = data.whitelistVotes[target] - oldWeight + newWeight;
                 data.whitelistVoteWeights[target][user] = newWeight;
-                _updateBlacklistStatus(data, target, quorum, totalSupply, alpha);
+                _updateBlacklistStatus(data, target, totalSupply, q);
             }
         }
     }
 
     // Internal function to update blacklist status based on votes
-    function _updateBlacklistStatus( GovernanceData storage data, address target, uint256 quorum, uint256 totalSupply, uint256 alpha ) private {
+    function _updateBlacklistStatus( GovernanceData storage data, address target, uint256 totalSupply, uint256 q ) private {
         uint256 blacklistVotesCount = data.blacklistVotes[target];
         uint256 whitelistVotesCount = data.whitelistVotes[target];
         uint256 totalVotes = blacklistVotesCount + whitelistVotesCount;
-
-        bool totalVotesExceedQuorum = totalVotes > quorum;
         uint256 diff = blacklistVotesCount > whitelistVotesCount ? blacklistVotesCount - whitelistVotesCount : 0;
         uint256 undecided = totalSupply > totalVotes ? totalSupply - totalVotes : 0;
-        bool thresholdMet = diff * GOVERNANCE_DENOMINATOR > alpha * undecided;
-        bool shouldBlacklist = totalVotesExceedQuorum && thresholdMet;
+        bool shouldBlacklist = diff * DENOMINATOR > q * undecided;
         bool wasBlacklisted = data.isBlacklisted[target];
         data.isBlacklisted[target] = shouldBlacklist;
 

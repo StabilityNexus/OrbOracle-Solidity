@@ -232,7 +232,7 @@ contract Oracle is Ownable, ReentrancyGuard {
         GovernanceLib.voteWhitelist(governance, target, msg.sender, unlockedTokens[msg.sender], totalDepositedTokens, Q);                  // Unlocked tokens are used for voting as weight
     }
 
-    function calculateReward(uint256 rewardPool, uint256 weight, uint256 elapsed, uint256 totalWeight) private pure returns (uint256 reward) {
+    function calculateReward(uint256 rewardPool, uint256 weight, uint256 elapsed, uint256 totalWeight) private view returns (uint256 reward) {
         if (rewardPool == 0 || weight == 0 || totalWeight == 0) return 0;
 
         uint256 activityFac = DecayLib.activityFactor(elapsed, HALF_LIFE_SECONDS);

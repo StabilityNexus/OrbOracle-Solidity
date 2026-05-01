@@ -3,8 +3,7 @@ pragma solidity ^0.8.20;
 
 uint256 constant DENOMINATOR = 1e5;
 
-error AlreadyVotedBlacklist(address target, address voter);
-error AlreadyVotedWhitelist(address target, address voter);
+
 
 /// @title GovernanceLib
 /// @dev Library for handling blacklist/whitelist governance functionality
@@ -26,24 +25,50 @@ library GovernanceLib {
     event BlacklistStatusChanged(address indexed target, bool isBlacklisted);
 
     function voteBlacklist( GovernanceData storage data, address target, address voter, uint256 weight, uint256 totalSupply, uint256 q ) external {
-        if (data.hasVotedBlacklist[target][voter]) revert AlreadyVotedBlacklist(target, voter);
+        uint256 oldBlacklistWeight = data.blacklistVoteWeights[target][voter];
+        uint256 oldWhitelistWeight = data.whitelistVoteWeights[target][voter];
 
-        data.hasVotedBlacklist[target][voter] = true;
+        // Update blacklist votes
+        if (oldBlacklistWeight > 0) {
+            data.blacklistVotes[target] -= oldBlacklistWeight;
+        } else if (!data.hasVotedBlacklist[target][voter]) {
+            data.userBlacklistVotes[voter].push(target);
+        }
         data.blacklistVotes[target] += weight;
         data.blacklistVoteWeights[target][voter] = weight;
-        data.userBlacklistVotes[voter].push(target);
+        data.hasVotedBlacklist[target][voter] = true;
+
+        // Cancel whitelist vote for this target
+        if (oldWhitelistWeight > 0) {
+            data.whitelistVotes[target] -= oldWhitelistWeight;
+            data.whitelistVoteWeights[target][voter] = 0;
+            data.hasVotedWhitelist[target][voter] = false;
+        }
 
         emit Voted(target, voter, true, weight);
         _updateBlacklistStatus(data, target, totalSupply, q);
     }
 
     function voteWhitelist( GovernanceData storage data, address target, address voter, uint256 weight, uint256 totalSupply, uint256 q ) external {
-        if (data.hasVotedWhitelist[target][voter]) revert AlreadyVotedWhitelist(target, voter);
+        uint256 oldWhitelistWeight = data.whitelistVoteWeights[target][voter];
+        uint256 oldBlacklistWeight = data.blacklistVoteWeights[target][voter];
 
-        data.hasVotedWhitelist[target][voter] = true;
+        // Update whitelist votes
+        if (oldWhitelistWeight > 0) {
+            data.whitelistVotes[target] -= oldWhitelistWeight;
+        } else if (!data.hasVotedWhitelist[target][voter]) {
+            data.userWhitelistVotes[voter].push(target);
+        }
         data.whitelistVotes[target] += weight;
         data.whitelistVoteWeights[target][voter] = weight;
-        data.userWhitelistVotes[voter].push(target);
+        data.hasVotedWhitelist[target][voter] = true;
+
+        // Cancel blacklist vote for this target
+        if (oldBlacklistWeight > 0) {
+            data.blacklistVotes[target] -= oldBlacklistWeight;
+            data.blacklistVoteWeights[target][voter] = 0;
+            data.hasVotedBlacklist[target][voter] = false;
+        }
 
         emit Voted(target, voter, false, weight);
         _updateBlacklistStatus(data, target, totalSupply, q);

@@ -7,6 +7,20 @@ import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {GovernanceLib} from "./GovernanceLib.sol";
 import {DecayLib} from "./DecayLib.sol";
 
+error BlacklistedCaller();
+error NoGovernanceWeight();
+error InvalidWeightTokenAddress();
+error RewardTransferFailed();
+error AmountZero();
+error TokenTransferFailed();
+error InsufficientUnlockedBalance();
+error WithdrawalLockActive(uint256 unlockTime);
+error PriceHistoryStartOutOfBounds();
+error PriceHistoryEndOutOfBounds();
+error InvalidPriceHistoryRange();
+error EmptyHistory();
+error InvalidSampleSize();
+
 contract Oracle is Ownable, ReentrancyGuard {
 
     event ValueSubmitted(address indexed submitter, uint256 indexed timestamp, int256 submittedValue, int256 aggregatedValue, uint256 weight, uint256 rewardWei);
@@ -18,8 +32,8 @@ contract Oracle is Ownable, ReentrancyGuard {
 
     IERC20 public immutable WEIGHT_TOKEN;
     
-    mapping(address => uint256) public lockedTokens;            // Tokens locked for operations
-    mapping(address => uint256) public unlockedTokens;          // Tokens available for withdrawal
+    mapping(address => uint256) public lockedTokens;            // Tokens locked for operations 
+    mapping(address => uint256) public unlockedTokens;          // Tokens available for withdrawal 
     uint256 public totalDepositedTokens;
     
     mapping(address => uint256) public depositTimestamp;        // when user last deposited tokens
@@ -27,17 +41,19 @@ contract Oracle is Ownable, ReentrancyGuard {
     
     GovernanceLib.GovernanceData private governance;
 
-    mapping(address => int256) private pof;                     // P(x): last submitted price by x
-    mapping(address => uint256) private wof;                    // W(x): weight of x
+    mapping(address => int256) private pof;                     // P(x): last submitted price by x 
+    mapping(address => uint256) private wof;                    // W(x): weight of x 
     mapping(address => uint256) private tof;                    // T(x): last submission time of x 
 
-    
     // Price history tracking
     mapping(uint256 => int256) public priceHistory;              // timestamp => aggregated price at that time
     mapping(uint256 => int256) public latestValueHistory;        // timestamp => latest raw submission at that time 
     uint256[] public priceTimestamps;                            // array of timestamps when price was updated
+    int256[] private history;                             // historical aggregated values sampled at fixed interval
+    uint256[] private historyTimestamps;                  // timestamps corresponding to entries in history
 
     uint256 private constant DENOMINATOR = 1e5;
+    uint256 private constant WAD = 1e18;
 
     int256  private latestValue;                                 // most recent raw submission
     int256  private aggregatedValue;                             // last aggregated price (decayed weighted mean) 
@@ -49,26 +65,27 @@ contract Oracle is Ownable, ReentrancyGuard {
     
     uint256 public immutable DEPOSIT_LOCKING_PERIOD;              // seconds that tokens must be locked after deposit before operations
     uint256 public immutable WITHDRAWAL_LOCKING_PERIOD;           // seconds that tokens must be locked after last operation before withdrawal
-    uint256 public immutable REWARD; 
-    uint256 public immutable HALF_LIFE_SECONDS;                  // Aggregation config -> HALF_LIFE_SECONDS controls time-decay in default EWMA formula
-    uint256 public immutable QUORUM;                              // required votes >= QUORUM% of totalDepositedTokens
-    uint256 public immutable ALPHA;
+    uint256 public immutable HALF_LIFE_SECONDS;                   // Aggregation config -> HALF_LIFE_SECONDS controls time-decay
+    uint256 public immutable Q;                                   // governance constant used in blacklist equation
+    uint256 public immutable REWARD_BPS;
+    uint256 public immutable GAMMA;                               // minimal interval between entries recorded for extremes
 
     modifier notBlacklisted() {
-        require(!GovernanceLib.isBlacklisted(governance, msg.sender), "Blacklisted");
+        if (GovernanceLib.isBlacklisted(governance, msg.sender)) revert BlacklistedCaller();
         _;
     }
     modifier onlyTokenHolder() {
         _unlockTokensIfPossible(msg.sender);
-        require(unlockedTokens[msg.sender] > 0, "No locked tokens for governance");
+        if (unlockedTokens[msg.sender] == 0) revert NoGovernanceWeight();
         _;
     }
 
-    constructor(address owner_, string memory name_,string memory description_, address weightToken_,uint256 reward_,uint256 halfLifeSeconds_,uint256 quorum_,uint256 depositLockingPeriod_,uint256 withdrawalLockingPeriod_,uint256 alpha_) Ownable(owner_) {
-        require(weightToken_ != address(0), "Invalid token address");
-        WEIGHT_TOKEN = IERC20(weightToken_); REWARD = reward_; HALF_LIFE_SECONDS = halfLifeSeconds_;
-        QUORUM = quorum_; DEPOSIT_LOCKING_PERIOD = depositLockingPeriod_; WITHDRAWAL_LOCKING_PERIOD = withdrawalLockingPeriod_;
-        lastTimestamp = block.timestamp; lastSubmissionTime = block.timestamp; ALPHA = alpha_; name = name_; description = description_;
+    constructor(address owner_, string memory name_,string memory description_, address weightToken_,uint256 halfLifeSeconds_,uint256 q_,uint256 depositLockingPeriod_,uint256 withdrawalLockingPeriod_,uint256 rewardBps_, uint256 gamma_) Ownable(owner_) {
+        if (weightToken_ == address(0)) revert InvalidWeightTokenAddress();
+        WEIGHT_TOKEN = IERC20(weightToken_); HALF_LIFE_SECONDS = halfLifeSeconds_;
+        Q = q_; DEPOSIT_LOCKING_PERIOD = depositLockingPeriod_; WITHDRAWAL_LOCKING_PERIOD = withdrawalLockingPeriod_;
+        lastTimestamp = block.timestamp; lastSubmissionTime = block.timestamp; REWARD_BPS = rewardBps_; name = name_; description = description_;
+        GAMMA = gamma_;
     }
 
     receive() external payable {
@@ -86,11 +103,11 @@ contract Oracle is Ownable, ReentrancyGuard {
         lastTimestamp = nowTs;
         uint256 w = unlockedTokens[msg.sender];                                                        // Using unlocked tokens as weight
 
-        uint256 decayedQ = DecayLib.applyDecay(aggregatedWeight, nowTs - lastSubmissionTime, HALF_LIFE_SECONDS);
+        uint256 decayedQ = DecayLib.applyDecay(aggregatedWeight, nowTs - lastSubmissionTime, HALF_LIFE_SECONDS); 
 
-        uint256 lastT = tof[msg.sender];  
-        uint256 oldWeight = wof[msg.sender];  
-        int256 oldPrice = pof[msg.sender];            
+        uint256 lastT = tof[msg.sender]; 
+        uint256 oldWeight = wof[msg.sender]; 
+        int256 oldPrice = pof[msg.sender];  
         
         uint256 timeSinceUser = nowTs - lastT;
         uint256 userWeightDecayed = DecayLib.applyDecay(oldWeight, timeSinceUser, HALF_LIFE_SECONDS); // Calculate decayed contributions 
@@ -98,13 +115,13 @@ contract Oracle is Ownable, ReentrancyGuard {
         int256 numerator = aggregatedValue * int256(decayedQ) - oldPrice * int256(userWeightDecayed); // Calculate new weighted average
         uint256 newQ = decayedQ - userWeightDecayed + w;
         numerator += newValue * int256(w);
-        int256 newP = numerator / int256(newQ);
+        int256 newP = numerator / int256(newQ); 
         
-        uint256 rewardPool = (address(this).balance * REWARD) / DENOMINATOR;                          // Calculate REWARD 
-        uint256 rewardToSubmitter = DecayLib.calculateReward( rewardPool, w, timeSinceUser, decayedQ, ALPHA, HALF_LIFE_SECONDS );
+        uint256 rewardPool = (address(this).balance * REWARD_BPS) / DENOMINATOR;                     // Portion of balance reserved for rewards
+        uint256 rewardToSubmitter = calculateReward(rewardPool, w, timeSinceUser, decayedQ);
         if (rewardToSubmitter > 0) {
             (bool ok, ) = msg.sender.call{value: rewardToSubmitter}("");
-            require(ok, "REWARD transfer failed");
+            if (!ok) revert RewardTransferFailed();
         }
  
         // Update all state variables
@@ -112,6 +129,12 @@ contract Oracle is Ownable, ReentrancyGuard {
         pof[msg.sender] = newValue; wof[msg.sender] = w; tof[msg.sender] = nowTs;
         lastSubmissionTime = nowTs; latestValue = newValue;
         priceHistory[nowTs] = newP; latestValueHistory[nowTs] = newValue; priceTimestamps.push(nowTs);
+
+        uint256 lastRecordedTs = historyTimestamps.length == 0 ? 0 : historyTimestamps[historyTimestamps.length - 1];
+        if (history.length == 0 || nowTs > lastRecordedTs + GAMMA) {
+            history.push(newP);
+            historyTimestamps.push(nowTs);
+        }
         
         emit ValueSubmitted(msg.sender, nowTs, newValue, newP, w, rewardToSubmitter);
     }
@@ -126,9 +149,45 @@ contract Oracle is Ownable, ReentrancyGuard {
         return latestValue; 
     }
 
+    function readMaxValue(uint256 sampleSize) external notBlacklisted returns (int256) {
+        lastTimestamp = block.timestamp;
+        if (history.length == 0) revert EmptyHistory();
+        if (sampleSize == 0) revert InvalidSampleSize();
+
+        uint256 historyLength = history.length;
+        if (sampleSize > historyLength) sampleSize = historyLength;
+
+        int256 maxValue = history[historyLength - 1];
+        for (uint256 i = 1; i < sampleSize; ++i) {
+            int256 candidate = history[historyLength - 1 - i];
+            if (candidate > maxValue) {
+                maxValue = candidate;
+            }
+        }
+        return maxValue;
+    }
+
+    function readMinValue(uint256 sampleSize) external notBlacklisted returns (int256) {
+        lastTimestamp = block.timestamp;
+        if (history.length == 0) revert EmptyHistory();
+        if (sampleSize == 0) revert InvalidSampleSize();
+
+        uint256 historyLength = history.length;
+        if (sampleSize > historyLength) sampleSize = historyLength;
+
+        int256 minValue = history[historyLength - 1];
+        for (uint256 i = 1; i < sampleSize; ++i) {
+            int256 candidate = history[historyLength - 1 - i];
+            if (candidate < minValue) {
+                minValue = candidate;
+            }
+        }
+        return minValue;
+    }
+
     function depositTokens(uint256 amount) external nonReentrant {
-        require(amount > 0, "Amount must be positive");
-        require(WEIGHT_TOKEN.transferFrom(msg.sender, address(this), amount), "Transfer failed");
+        if (amount == 0) revert AmountZero();
+        if (!WEIGHT_TOKEN.transferFrom(msg.sender, address(this), amount)) revert TokenTransferFailed();
         _unlockTokensIfPossible(msg.sender);
         
         uint256 nowTs = block.timestamp;
@@ -142,34 +201,44 @@ contract Oracle is Ownable, ReentrancyGuard {
     }
     
     function withdrawTokens(uint256 amount) external nonReentrant {
-        require(amount > 0, "Amount must be positive");
+        if (amount == 0) revert AmountZero();
         _unlockTokensIfPossible(msg.sender);
-        require(unlockedTokens[msg.sender] >= amount, "Insufficient unlocked tokens");
-        require(lastOperationTimestamp[msg.sender] + WITHDRAWAL_LOCKING_PERIOD <= block.timestamp, "Withdrawal locking period not elapsed");
-        
+        if (unlockedTokens[msg.sender] < amount) revert InsufficientUnlockedBalance();
+        uint256 unlockTime = lastOperationTimestamp[msg.sender] + WITHDRAWAL_LOCKING_PERIOD;
+        if (unlockTime > block.timestamp) revert WithdrawalLockActive(unlockTime);
+
         lastTimestamp = block.timestamp;
-        require(WEIGHT_TOKEN.transfer(msg.sender, amount), "Transfer failed");
+        if (!WEIGHT_TOKEN.transfer(msg.sender, amount)) revert TokenTransferFailed();
         unlockedTokens[msg.sender] -= amount;
         totalDepositedTokens -= amount;
         
-        GovernanceLib.updateUserVoteWeights(governance, msg.sender, unlockedTokens[msg.sender], QUORUM);
+        GovernanceLib.updateUserVoteWeights(governance, msg.sender, unlockedTokens[msg.sender], totalDepositedTokens, Q);
         emit TokenWithdrawn(msg.sender, amount);
     }
     
     function updateUserVoteWeights() external onlyTokenHolder {
-        GovernanceLib.updateUserVoteWeights(governance, msg.sender, unlockedTokens[msg.sender], QUORUM);
+        GovernanceLib.updateUserVoteWeights(governance, msg.sender, unlockedTokens[msg.sender], totalDepositedTokens, Q);
     }
 
     function voteBlacklist(address target) external onlyTokenHolder {
         lastOperationTimestamp[msg.sender] = block.timestamp;
         lastTimestamp = block.timestamp;
-        GovernanceLib.voteBlacklist(governance, target, msg.sender, unlockedTokens[msg.sender], QUORUM);  // Unlocked tokens are used for voting as weight
+        GovernanceLib.voteBlacklist(governance, target, msg.sender, unlockedTokens[msg.sender], totalDepositedTokens, Q);                 // Unlocked tokens are used for voting as weight
     }
     
     function voteWhitelist(address target) external onlyTokenHolder {
         lastOperationTimestamp[msg.sender] = block.timestamp;
         lastTimestamp = block.timestamp;
-        GovernanceLib.voteWhitelist(governance, target, msg.sender, unlockedTokens[msg.sender], QUORUM);   // Unlocked tokens are used for voting as weight
+        GovernanceLib.voteWhitelist(governance, target, msg.sender, unlockedTokens[msg.sender], totalDepositedTokens, Q);                  // Unlocked tokens are used for voting as weight
+    }
+
+    function calculateReward(uint256 rewardPool, uint256 weight, uint256 elapsed, uint256 totalWeight) private view returns (uint256 reward) {
+        if (rewardPool == 0 || weight == 0 || totalWeight == 0) return 0;
+
+        uint256 activityFac = DecayLib.activityFactor(elapsed, HALF_LIFE_SECONDS);
+        if (activityFac == 0) return 0;
+        uint256 num = (weight * activityFac) / WAD; // w * (1 - δ^Δy)
+        return (rewardPool * num) / totalWeight;
     }
 
     // Unlock tokens if the locking periods have elapsed
@@ -181,9 +250,9 @@ contract Oracle is Ownable, ReentrancyGuard {
     }
     
     function getPriceHistoryRange(uint256 startIndex, uint256 endIndex) external view returns ( uint256[] memory timestamps,  int256[] memory aggregatedPrices, int256[] memory latestValues) {
-        require(startIndex < priceTimestamps.length, "Start index out of bounds");
-        require(endIndex <= priceTimestamps.length, "End index out of bounds");
-        require(startIndex < endIndex, "Invalid range");
+        if (startIndex >= priceTimestamps.length) revert PriceHistoryStartOutOfBounds();
+        if (endIndex > priceTimestamps.length) revert PriceHistoryEndOutOfBounds();
+        if (startIndex >= endIndex) revert InvalidPriceHistoryRange();
         
         uint256 length = endIndex - startIndex;
         timestamps = new uint256[](length);

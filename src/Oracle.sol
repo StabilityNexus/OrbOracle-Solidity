@@ -49,8 +49,8 @@ contract Oracle is Ownable, ReentrancyGuard {
     mapping(uint256 => int256) public priceHistory;              // timestamp => aggregated price at that time
     mapping(uint256 => int256) public latestValueHistory;        // timestamp => latest raw submission at that time 
     uint256[] public priceTimestamps;                            // array of timestamps when price was updated
-    int256[] private history;                             // historical aggregated values sampled at fixed interval
-    uint256[] private historyTimestamps;                  // timestamps corresponding to entries in history
+    int256[] public history;                             // historical aggregated values sampled at fixed interval
+    uint256[] public historyTimestamps;                  // timestamps corresponding to entries in history
 
     uint256 private constant DENOMINATOR = 1e5;
     uint256 private constant WAD = 1e18;
@@ -271,4 +271,5 @@ contract Oracle is Ownable, ReentrancyGuard {
     function isBlacklisted(address target) external view returns (bool) { return GovernanceLib.isBlacklisted(governance, target); }
     function getSubmitterInfo(address submitter) external view returns (int256 lastSubmittedPrice, uint256 lastWeight, uint256 lastSubmittedTime) { return (pof[submitter], wof[submitter], tof[submitter]); }
     function getPriceHistoryLength() external view returns (uint256) { return priceTimestamps.length; }
+    function getHistoryLength() external view returns (uint256) { return history.length; } // number of sampled history entries
 }

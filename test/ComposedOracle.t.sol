@@ -7,12 +7,22 @@ import {ComposedOracle} from "../src/ComposedOracle.sol";
 contract MockOracle {
     int256 private price;
     uint256 private lastSubTime;
+    int256[] public history;
+    uint256[] public historyTimestamps;
+
     mapping(address => bool) private blacklisted;
 
     constructor(int256 _price) {
         price = _price;
         lastSubTime = block.timestamp;
     }
+
+    function pushHistory(uint256 timestamp, int256 value) external {
+        historyTimestamps.push(timestamp);
+        history.push(value);
+    }
+
+    function getHistoryLength() external view returns (uint256) { return history.length; }
 
     function readValue() external view returns (int256) {
         return price;
@@ -46,6 +56,76 @@ contract ComposedOracleTest is Test {
     function setUp() public {
         feedA = new MockOracle(0);
         feedB = new MockOracle(0);
+    }
+
+    function _newMulComposed() internal returns (ComposedOracle) { return new ComposedOracle(address(feedA), address(feedB), 0, false, 0, 0); }
+
+    function _newDivComposed() internal returns (ComposedOracle) { return new ComposedOracle(address(feedA), address(feedB), 1, false, 0, 0); }
+
+    function testReadMaxValueMatchingTimestamps() public {
+        feedA.pushHistory(10, 2);
+        feedA.pushHistory(20, 4);
+        feedA.pushHistory(30, 1);
+        feedB.pushHistory(10, 100);
+        feedB.pushHistory(20, 50);
+        feedB.pushHistory(30, 300);
+
+        ComposedOracle composed = _newMulComposed();
+        assertEq(composed.readMaxValue(3), 300 * 1e18);
+    }
+
+    function testReadMinValueMatchingTimestamps() public {
+        feedA.pushHistory(10, 2);
+        feedA.pushHistory(20, 4);
+        feedA.pushHistory(30, 1);
+        feedB.pushHistory(10, 100);
+        feedB.pushHistory(20, 50);
+        feedB.pushHistory(30, 300);
+        ComposedOracle composed = _newMulComposed();
+        assertEq(composed.readMinValue(3), 200 * 1e18);
+    }
+
+    function testReadMaxValueUsesLatestAvailableValue() public {
+        feedA.pushHistory(10, 2);
+        feedA.pushHistory(30, 4);
+        feedB.pushHistory(20, 100);
+        feedB.pushHistory(40, 200);
+        ComposedOracle composed = _newMulComposed();
+        assertEq(composed.readMaxValue(3), 800 * 1e18);
+    }
+
+    function testReadMaxValueUsesLatestSampleSize() public {
+        feedA.pushHistory(10, 2);
+        feedA.pushHistory(30, 4);
+        feedB.pushHistory(20, 100);
+        feedB.pushHistory(40, 1);
+        ComposedOracle composed = _newMulComposed();
+        assertEq(composed.readMaxValue(2), 400 * 1e18);
+    }
+
+    function testReadMinValueSampleSizeGreaterThanHistoryUsesAll() public {
+        feedA.pushHistory(10, 2);
+        feedA.pushHistory(30, 4);
+        feedB.pushHistory(20, 100);
+        feedB.pushHistory(40, 1);
+        ComposedOracle composed = _newMulComposed();
+        assertEq(composed.readMinValue(100), 4 * 1e18);
+    }
+
+    function testReadMaxValueRevertsForZeroSampleSize() public {
+        feedA.pushHistory(10, 2);
+        feedB.pushHistory(10, 100);
+
+        ComposedOracle composed = _newMulComposed();
+        vm.expectRevert(ComposedOracle.InvalidSampleSize.selector);
+        composed.readMaxValue(0);
+    }
+
+    function testReadMinValueRevertsForEmptyHistory() public {
+        ComposedOracle composed = _newMulComposed();
+
+        vm.expectRevert(ComposedOracle.EmptyHistory.selector);
+        composed.readMinValue(1);
     }
 
     function testMultiplication() public {

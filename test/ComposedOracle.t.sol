@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "lib/forge-std/src/Test.sol";
-import {ComposedOracle} from "../src/ComposedOracle.sol";
+import {ComposedOracle, ComposedOracleByMultiplication, ComposedOracleByDivision} from "../src/ComposedOracle.sol";
 
 contract MockOracle {
     int256 private price;
@@ -34,30 +34,14 @@ contract ComposedOracleTest is Test {
         feedA.setPrice(6);
         feedB.setPrice(2);
 
-        ComposedOracle composed = new ComposedOracle(
-            address(feedA),
-            address(feedB),
-            0,
-            false,
-            0,
-            0
-        );
-
+        ComposedOracle composed = new ComposedOracleByMultiplication(address(feedA), address(feedB), false, 0, 0);
         assertEq(composed.readValue(), 12 * 1e18);
     }
 
     function testDivision() public {
         feedA.setPrice(6);
         feedB.setPrice(2);
-        ComposedOracle composed = new ComposedOracle(
-            address(feedA),
-            address(feedB),
-            1,
-            false,
-            0,
-            0
-        );
-
+        ComposedOracle composed = new ComposedOracleByDivision(address(feedA), address(feedB), false, 0, 0);
         assertEq(composed.readValue(), 3 * 1e18);
     }
 
@@ -65,14 +49,7 @@ contract ComposedOracleTest is Test {
         feedA.setPrice(1 * 10 ** 8);
         feedB.setPrice(3000 * 10 ** 18);
 
-        ComposedOracle composed = new ComposedOracle(
-            address(feedA),
-            address(feedB),
-            0,
-            false,
-            8,
-            18
-        );
+        ComposedOracle composed = new ComposedOracleByMultiplication(address(feedA), address(feedB), false, 8, 18);
 
         assertEq(composed.readValue(), 3000 * 1e18);
     }
@@ -81,15 +58,7 @@ contract ComposedOracleTest is Test {
         feedA.setPrice(3000 * 10 ** 18);
         feedB.setPrice(100000 * 10 ** 8);
 
-        ComposedOracle composed = new ComposedOracle(
-            address(feedA),
-            address(feedB),
-            1,
-            false,
-            18,
-            8
-        );
-
+        ComposedOracle composed = new ComposedOracleByDivision(address(feedA), address(feedB), false, 18, 8);
         assertEq(composed.readValue(), 3 * 10 ** 16);
     }
 
@@ -97,15 +66,7 @@ contract ComposedOracleTest is Test {
         feedA.setPrice(10);
         feedB.setPrice(0);
 
-        ComposedOracle composed = new ComposedOracle(
-            address(feedA),
-            address(feedB),
-            1,
-            false,
-            0,
-            0
-        );
-
+        ComposedOracle composed = new ComposedOracleByDivision(address(feedA), address(feedB), false, 0, 0);
         vm.expectRevert(ComposedOracle.DivisionByZero.selector);
         composed.readValue();
     }
@@ -114,15 +75,7 @@ contract ComposedOracleTest is Test {
         feedA.setPrice(0);
         feedB.setPrice(5);
 
-        ComposedOracle composed = new ComposedOracle(
-            address(feedA),
-            address(feedB),
-            0,
-            true,
-            0,
-            0
-        );
-
+        ComposedOracle composed = new ComposedOracleByMultiplication(address(feedA), address(feedB), true, 0, 0);
         vm.expectRevert(ComposedOracle.DivisionByZero.selector);
         composed.readValue();
     }
@@ -131,15 +84,7 @@ contract ComposedOracleTest is Test {
         feedA.setPrice(-3 * 10 ** 8);
         feedB.setPrice(2 * 10 ** 18);
 
-        ComposedOracle composed = new ComposedOracle(
-            address(feedA),
-            address(feedB),
-            0,
-            false,
-            8,
-            18
-        );
-
+        ComposedOracle composed = new ComposedOracleByMultiplication(address(feedA), address(feedB), false, 8, 18);
         assertEq(composed.readValue(), -6 * 1e18);
     }
 
@@ -147,14 +92,7 @@ contract ComposedOracleTest is Test {
         feedA.setPrice(2);
         feedB.setPrice(1);
 
-        ComposedOracle composed = new ComposedOracle(
-            address(feedA),
-            address(feedB),
-            0,
-            true,
-            0,
-            0
-        );
+        ComposedOracle composed = new ComposedOracleByMultiplication(address(feedA), address(feedB), true, 0, 0);
         int256 expected = (1e18 * 1e18) / (2 * 1e18);
         assertEq(composed.readValue(), expected);
     }

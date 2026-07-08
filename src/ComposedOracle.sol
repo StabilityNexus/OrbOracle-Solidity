@@ -3,18 +3,16 @@ pragma solidity ^0.8.20;
 
 // interface for parent feeds
 interface IOracle {
-    function readValue() external returns (int256);
+    function readValue() external view returns (int256);
 
     function lastSubmissionTime() external view returns (uint256);
 
     function isBlacklisted(address target) external view returns (bool);
 }
 
-contract ComposedOracle {
+abstract contract ComposedOracle {
     address public immutable feedA;
     address public immutable feedB;
-
-    uint8 public immutable operation;
 
     bool public immutable invertResult;
     uint8 public immutable decimalsA;
@@ -24,54 +22,31 @@ contract ComposedOracle {
 
     error DivisionByZero();
     error InvalidFeedAddress();
-    error InvalidOperation();
     error BlacklistedCaller();
 
-    constructor(
-        address _feedA,
-        address _feedB,
-        uint8 _operation,
-        bool _invertResult,
-        uint8 _decimalsA,
-        uint8 _decimalsB
-    ) {
+    constructor(address _feedA, address _feedB, bool _invertResult, uint8 _decimalsA, uint8 _decimalsB) {
         if (_feedA == address(0) || _feedB == address(0)) {
             revert InvalidFeedAddress();
         }
-        if (_operation > 1) revert InvalidOperation();
         feedA = _feedA;
         feedB = _feedB;
-        operation = _operation;
         invertResult = _invertResult;
         decimalsA = _decimalsA;
         decimalsB = _decimalsB;
     }
 
-    function readValue() external returns (int256) {
+    function readValue() external view returns (int256) {
         if (IOracle(feedA).isBlacklisted(msg.sender) || IOracle(feedB).isBlacklisted(msg.sender)) {
             revert BlacklistedCaller();
         }
         int256 valA = IOracle(feedA).readValue();
         int256 valB = IOracle(feedB).readValue();
 
-        int256 result;
+        return _compose(valA, valB);
+    }
 
-        if (operation == 0) {
-            uint256 scalingPower = decimalsA + decimalsB;
-            if (scalingPower <= 18) {
-                result = valA * valB * int256(10 ** (18 - scalingPower));
-            } else {
-                result = (valA * valB) / int256(10 ** (scalingPower - 18));
-            }
-        } else {
-            if (valB == 0) revert DivisionByZero();
-
-            if (decimalsA <= decimalsB + 18) {
-                result = (valA * int256(10 ** (decimalsB + 18 - decimalsA))) / valB;
-            } else {
-                result = valA / (valB * int256(10 ** (decimalsA - decimalsB - 18)));
-            }
-        }
+    function _compose(int256 valA, int256 valB) internal view returns (int256) {
+        int256 result = _composeWithoutInversion(valA, valB);
 
         if (invertResult) {
             if (result == 0) revert DivisionByZero();
@@ -81,9 +56,37 @@ contract ComposedOracle {
         return result;
     }
 
+    function _composeWithoutInversion(int256 valA, int256 valB) internal view virtual returns (int256);
+
     function lastSubmissionTime() external view returns (uint256) {
         uint256 timeA = IOracle(feedA).lastSubmissionTime();
         uint256 timeB = IOracle(feedB).lastSubmissionTime();
         return timeA < timeB ? timeA : timeB;
+    }
+}
+
+contract ComposedOracleByMultiplication is ComposedOracle {
+    constructor(address _feedA, address _feedB, bool _invertResult, uint8 _decimalsA, uint8 _decimalsB) 
+        ComposedOracle(_feedA, _feedB, _invertResult, _decimalsA, _decimalsB) {}
+
+    function _composeWithoutInversion(int256 valA, int256 valB) internal view override returns (int256) {
+        uint256 scalingPower = decimalsA + decimalsB;
+
+        if (18 >= scalingPower) { return valA * valB * int256(10 ** (18 - scalingPower)); }
+
+        return (valA * valB) / int256(10 ** (scalingPower - 18));
+    }
+}
+
+contract ComposedOracleByDivision is ComposedOracle {
+    constructor(address _feedA, address _feedB, bool _invertResult, uint8 _decimalsA, uint8 _decimalsB) 
+        ComposedOracle(_feedA, _feedB, _invertResult, _decimalsA, _decimalsB) {}
+
+    function _composeWithoutInversion(int256 valA, int256 valB) internal view override returns (int256) {
+        if (valB == 0) revert DivisionByZero();
+
+        if (decimalsB + 18 >= decimalsA) { return (valA * int256(10 ** (decimalsB + 18 - decimalsA))) / valB; }
+
+        return valA / (valB * int256(10 ** (decimalsA - decimalsB - 18)));
     }
 }

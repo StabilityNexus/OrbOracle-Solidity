@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 // interface for parent feeds
 interface IOracle {
-    function readValue() external returns (int256);
+    function readValue() external view returns (int256);
 }
 
 abstract contract ComposedOracle {
@@ -26,7 +26,7 @@ abstract contract ComposedOracle {
         decimalsB = _decimalsB;
     }
 
-    function readValue() external returns (int256) {
+    function readValue() external view returns (int256) {
         int256 valA = IOracle(feedA).readValue();
         int256 valB = IOracle(feedB).readValue();
 

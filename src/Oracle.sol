@@ -139,18 +139,15 @@ contract Oracle is Ownable, ReentrancyGuard {
         emit ValueSubmitted(msg.sender, nowTs, newValue, newP, w, rewardToSubmitter);
     }
 
-    function readValue() external notBlacklisted returns (int256) { 
-        lastTimestamp = block.timestamp;
+    function readValue() external view notBlacklisted returns (int256) { 
         return aggregatedValue; 
     }
     
-    function readLatestValue() external notBlacklisted returns (int256) { 
-        lastTimestamp = block.timestamp;
+    function readLatestValue() external view notBlacklisted returns (int256) { 
         return latestValue; 
     }
 
-    function readMaxValue(uint256 sampleSize) external notBlacklisted returns (int256) {
-        lastTimestamp = block.timestamp;
+    function readMaxValue(uint256 sampleSize) external view notBlacklisted returns (int256) {
         if (history.length == 0) revert EmptyHistory();
         if (sampleSize == 0) revert InvalidSampleSize();
 
@@ -167,8 +164,7 @@ contract Oracle is Ownable, ReentrancyGuard {
         return maxValue;
     }
 
-    function readMinValue(uint256 sampleSize) external notBlacklisted returns (int256) {
-        lastTimestamp = block.timestamp;
+    function readMinValue(uint256 sampleSize) external view notBlacklisted returns (int256) {
         if (history.length == 0) revert EmptyHistory();
         if (sampleSize == 0) revert InvalidSampleSize();
 

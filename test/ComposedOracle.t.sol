@@ -149,4 +149,31 @@ contract ComposedOracleTest is Test {
         feedB.setLastSubmissionTime(1500);
         assertEq(composed.lastSubmissionTime(), 1500);
     }
+
+    function testNestedComposedOracleBlacklist() public {
+        MockOracle feedC = new MockOracle(5);
+        
+        // 1. Compose feedA and feedB (composedParent)
+        ComposedOracle composedParent = new ComposedOracleByMultiplication(address(feedA), address(feedB), false, 0, 0);
+        
+        // 2. Compose composedParent and feedC (nestedComposed)
+        ComposedOracle nestedComposed = new ComposedOracleByDivision(address(composedParent), address(feedC), false, 18, 0);
+
+        feedA.setPrice(10);
+        feedB.setPrice(2); // composedParent = 20 * 1e18
+        
+        // 3. Blacklist address(this) on feedA
+        feedA.setBlacklisted(address(this), true);
+        
+        // 4. Verify nestedComposed.isBlacklisted(address(this)) is true
+        assertTrue(nestedComposed.isBlacklisted(address(this)));
+        
+        // 5. Verify nestedComposed.readValue() reverts with BlacklistedCaller
+        vm.expectRevert(ComposedOracle.BlacklistedCaller.selector);
+        nestedComposed.readValue();
+
+        // 6. Un-blacklist and verify readValue works (20 * 1e18 / 5 = 4 * 1e18)
+        feedA.setBlacklisted(address(this), false);
+        assertEq(nestedComposed.readValue(), 4 * 1e18);
+    }
 }

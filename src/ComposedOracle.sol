@@ -63,6 +63,10 @@ abstract contract ComposedOracle {
         uint256 timeB = IOracle(feedB).lastSubmissionTime();
         return timeA < timeB ? timeA : timeB;
     }
+
+    function isBlacklisted(address target) external view returns (bool) {
+        return IOracle(feedA).isBlacklisted(target) || IOracle(feedB).isBlacklisted(target);
+    }
 }
 
 contract ComposedOracleByMultiplication is ComposedOracle {

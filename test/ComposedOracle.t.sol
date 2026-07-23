@@ -6,9 +6,12 @@ import {ComposedOracle, ComposedOracleByMultiplication, ComposedOracleByDivision
 
 contract MockOracle {
     int256 private price;
+    uint256 private lastSubTime;
+    mapping(address => bool) private blacklisted;
 
     constructor(int256 _price) {
         price = _price;
+        lastSubTime = block.timestamp;
     }
 
     function readValue() external view returns (int256) {
@@ -18,6 +21,22 @@ contract MockOracle {
     function setPrice(int256 _price) external {
         price = _price;
     }
+
+    function lastSubmissionTime() external view returns (uint256) {
+        return lastSubTime;
+    }
+
+    function setLastSubmissionTime(uint256 _time) external {
+        lastSubTime = _time;
+    }
+
+    function isBlacklisted(address target) external view returns (bool) {
+        return blacklisted[target];
+    }
+
+    function setBlacklisted(address target, bool _status) external {
+        blacklisted[target] = _status;
+    }
 }
 
 contract ComposedOracleTest is Test {
@@ -26,7 +45,6 @@ contract ComposedOracleTest is Test {
 
     function setUp() public {
         feedA = new MockOracle(0);
-
         feedB = new MockOracle(0);
     }
 
@@ -95,5 +113,67 @@ contract ComposedOracleTest is Test {
         ComposedOracle composed = new ComposedOracleByMultiplication(address(feedA), address(feedB), true, 0, 0);
         int256 expected = (1e18 * 1e18) / (2 * 1e18);
         assertEq(composed.readValue(), expected);
+    }
+
+    function testConstructorRevertAddressZero() public {
+        vm.expectRevert(ComposedOracle.InvalidFeedAddress.selector);
+        new ComposedOracleByMultiplication(address(0), address(feedB), false, 0, 0);
+        vm.expectRevert(ComposedOracle.InvalidFeedAddress.selector);
+        new ComposedOracleByMultiplication(address(feedA), address(0), false, 0, 0);
+    }
+
+    function testBlacklistCallerRevert() public {
+        ComposedOracle composed = new ComposedOracleByMultiplication(address(feedA), address(feedB), false, 0, 0);
+        feedA.setBlacklisted(address(this), true);
+        vm.expectRevert(ComposedOracle.BlacklistedCaller.selector);
+        composed.readValue();
+
+        feedA.setBlacklisted(address(this), false);
+        feedB.setBlacklisted(address(this), true);
+        vm.expectRevert(ComposedOracle.BlacklistedCaller.selector);
+        composed.readValue();
+
+        feedB.setBlacklisted(address(this), false);
+        feedA.setPrice(6);
+        feedB.setPrice(2);
+        assertEq(composed.readValue(), 12 * 1e18);
+    }
+
+    function testLastSubmissionTimeMin() public {
+        ComposedOracle composed = new ComposedOracleByMultiplication(address(feedA), address(feedB), false, 0, 0);
+        feedA.setLastSubmissionTime(1000);
+        feedB.setLastSubmissionTime(2000);
+        assertEq(composed.lastSubmissionTime(), 1000);
+
+        feedA.setLastSubmissionTime(3000);
+        feedB.setLastSubmissionTime(1500);
+        assertEq(composed.lastSubmissionTime(), 1500);
+    }
+
+    function testNestedComposedOracleBlacklist() public {
+        MockOracle feedC = new MockOracle(5);
+        
+        // 1. Compose feedA and feedB (composedParent)
+        ComposedOracle composedParent = new ComposedOracleByMultiplication(address(feedA), address(feedB), false, 0, 0);
+        
+        // 2. Compose composedParent and feedC (nestedComposed)
+        ComposedOracle nestedComposed = new ComposedOracleByDivision(address(composedParent), address(feedC), false, 18, 0);
+
+        feedA.setPrice(10);
+        feedB.setPrice(2); // composedParent = 20 * 1e18
+        
+        // 3. Blacklist address(this) on feedA
+        feedA.setBlacklisted(address(this), true);
+        
+        // 4. Verify nestedComposed.isBlacklisted(address(this)) is true
+        assertTrue(nestedComposed.isBlacklisted(address(this)));
+        
+        // 5. Verify nestedComposed.readValue() reverts with BlacklistedCaller
+        vm.expectRevert(ComposedOracle.BlacklistedCaller.selector);
+        nestedComposed.readValue();
+
+        // 6. Un-blacklist and verify readValue works (20 * 1e18 / 5 = 4 * 1e18)
+        feedA.setBlacklisted(address(this), false);
+        assertEq(nestedComposed.readValue(), 4 * 1e18);
     }
 }

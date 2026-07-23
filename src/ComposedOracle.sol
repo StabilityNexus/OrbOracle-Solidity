@@ -4,6 +4,10 @@ pragma solidity ^0.8.20;
 // interface for parent feeds
 interface IOracle {
     function readValue() external view returns (int256);
+
+    function lastSubmissionTime() external view returns (uint256);
+
+    function isBlacklisted(address target) external view returns (bool);
 }
 
 abstract contract ComposedOracle {
@@ -17,8 +21,13 @@ abstract contract ComposedOracle {
     uint256 private constant WAD = 1e18;
 
     error DivisionByZero();
+    error InvalidFeedAddress();
+    error BlacklistedCaller();
 
     constructor(address _feedA, address _feedB, bool _invertResult, uint8 _decimalsA, uint8 _decimalsB) {
+        if (_feedA == address(0) || _feedB == address(0)) {
+            revert InvalidFeedAddress();
+        }
         feedA = _feedA;
         feedB = _feedB;
         invertResult = _invertResult;
@@ -27,6 +36,9 @@ abstract contract ComposedOracle {
     }
 
     function readValue() external view returns (int256) {
+        if (IOracle(feedA).isBlacklisted(msg.sender) || IOracle(feedB).isBlacklisted(msg.sender)) {
+            revert BlacklistedCaller();
+        }
         int256 valA = IOracle(feedA).readValue();
         int256 valB = IOracle(feedB).readValue();
 
@@ -45,10 +57,21 @@ abstract contract ComposedOracle {
     }
 
     function _composeWithoutInversion(int256 valA, int256 valB) internal view virtual returns (int256);
+
+    function lastSubmissionTime() external view returns (uint256) {
+        uint256 timeA = IOracle(feedA).lastSubmissionTime();
+        uint256 timeB = IOracle(feedB).lastSubmissionTime();
+        return timeA < timeB ? timeA : timeB;
+    }
+
+    function isBlacklisted(address target) external view returns (bool) {
+        return IOracle(feedA).isBlacklisted(target) || IOracle(feedB).isBlacklisted(target);
+    }
 }
 
 contract ComposedOracleByMultiplication is ComposedOracle {
-    constructor(address _feedA,address _feedB,bool _invertResult,uint8 _decimalsA,uint8 _decimalsB) ComposedOracle(_feedA, _feedB, _invertResult, _decimalsA, _decimalsB) {}
+    constructor(address _feedA, address _feedB, bool _invertResult, uint8 _decimalsA, uint8 _decimalsB) 
+        ComposedOracle(_feedA, _feedB, _invertResult, _decimalsA, _decimalsB) {}
 
     function _composeWithoutInversion(int256 valA, int256 valB) internal view override returns (int256) {
         uint256 scalingPower = decimalsA + decimalsB;
@@ -60,7 +83,8 @@ contract ComposedOracleByMultiplication is ComposedOracle {
 }
 
 contract ComposedOracleByDivision is ComposedOracle {
-    constructor(address _feedA,address _feedB,bool _invertResult,uint8 _decimalsA,uint8 _decimalsB) ComposedOracle(_feedA, _feedB, _invertResult, _decimalsA, _decimalsB) {}
+    constructor(address _feedA, address _feedB, bool _invertResult, uint8 _decimalsA, uint8 _decimalsB) 
+        ComposedOracle(_feedA, _feedB, _invertResult, _decimalsA, _decimalsB) {}
 
     function _composeWithoutInversion(int256 valA, int256 valB) internal view override returns (int256) {
         if (valB == 0) revert DivisionByZero();

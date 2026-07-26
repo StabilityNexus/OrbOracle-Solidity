@@ -30,6 +30,13 @@ abstract contract ComposedOracle {
     error EmptyHistory();
     error InvalidSampleSize();
 
+    modifier notBlacklisted() {
+        if (IOracle(feedA).isBlacklisted(msg.sender) || IOracle(feedB).isBlacklisted(msg.sender)) {
+            revert BlacklistedCaller();
+        }
+        _;
+    }
+
     constructor(address _feedA, address _feedB, bool _invertResult, uint8 _decimalsA, uint8 _decimalsB) {
         if (_feedA == address(0) || _feedB == address(0)) {
             revert InvalidFeedAddress();
@@ -41,10 +48,7 @@ abstract contract ComposedOracle {
         decimalsB = _decimalsB;
     }
 
-    function readValue() external view returns (int256) {
-        if (IOracle(feedA).isBlacklisted(msg.sender) || IOracle(feedB).isBlacklisted(msg.sender)) {
-            revert BlacklistedCaller();
-        }
+    function readValue() external view notBlacklisted returns (int256) {
         int256 valA = IOracle(feedA).readValue();
         int256 valB = IOracle(feedB).readValue();
 
@@ -64,17 +68,11 @@ abstract contract ComposedOracle {
 
     function _composeWithoutInversion(int256 valA, int256 valB) internal view virtual returns (int256);
 
-    function readMaxValue(uint256 sampleSize) external view returns (int256) {
-        if (IOracle(feedA).isBlacklisted(msg.sender) || IOracle(feedB).isBlacklisted(msg.sender)) {
-            revert BlacklistedCaller();
-        }
+    function readMaxValue(uint256 sampleSize) external view notBlacklisted returns (int256) {
         return _readExtremeValue(sampleSize, true);
     }
 
-    function readMinValue(uint256 sampleSize) external view returns (int256) {
-        if (IOracle(feedA).isBlacklisted(msg.sender) || IOracle(feedB).isBlacklisted(msg.sender)) {
-            revert BlacklistedCaller();
-        }
+    function readMinValue(uint256 sampleSize) external view notBlacklisted returns (int256) {
         return _readExtremeValue(sampleSize, false);
     }
 

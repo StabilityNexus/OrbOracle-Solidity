@@ -59,10 +59,7 @@ abstract contract ComposedOracle {
         return _compose(valA, valB);
     }
 
-    function readLatestValue() external view returns (int256) {
-        if (IOracle(feedA).isBlacklisted(msg.sender) || IOracle(feedB).isBlacklisted(msg.sender)) {
-            revert BlacklistedCaller();
-        }
+    function readLatestValue() external view notBlacklisted returns (int256) {
         int256 valA = IOracle(feedA).readLatestValue();
         int256 valB = IOracle(feedB).readLatestValue();
 

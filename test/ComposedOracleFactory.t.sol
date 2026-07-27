@@ -8,6 +8,7 @@ import {ComposedOracle, ComposedOracleByMultiplication, ComposedOracleByDivision
 contract MockOracle {
     function readValue() external pure returns (int256) { return 100; }
     function readLatestValue() external pure returns (int256) { return 100; }
+    function readValueInterval() external pure returns (int256, int256) { return (100, 100); }
     function lastSubmissionTime() external pure returns (uint256) { return 0; }
     function isBlacklisted(address) external pure returns (bool) { return false; }
 }
@@ -25,7 +26,7 @@ contract ComposedOracleFactoryTest is Test {
     }
 
     function testDeployMultiplication() public {
-        address oracleAddr = factory.createComposedOracle(feedA, feedB, 0, false, 0, 0);
+        address oracleAddr = factory.createComposedOracle(feedA, feedB, 0, false, 0, 0, 100);
         assertTrue(oracleAddr != address(0));
 
         // Check registry
@@ -42,7 +43,7 @@ contract ComposedOracleFactoryTest is Test {
     }
 
     function testDeployDivision() public {
-        address oracleAddr = factory.createComposedOracle(feedA, feedB, 1, false, 0, 0);
+        address oracleAddr = factory.createComposedOracle(feedA, feedB, 1, false, 0, 0, 100);
         assertTrue(oracleAddr != address(0));
 
         // Check registry
@@ -59,20 +60,20 @@ contract ComposedOracleFactoryTest is Test {
 
     function testRevertInvalidOperation() public {
         vm.expectRevert(InvalidOperation.selector);
-        factory.createComposedOracle(feedA, feedB, 2, false, 0, 0);
+        factory.createComposedOracle(feedA, feedB, 2, false, 0, 0, 100);
     }
 
     function testRevertInvalidFeedAddress() public {
         vm.expectRevert(InvalidFeed.selector);
-        factory.createComposedOracle(address(0), feedB, 0, false, 0, 0);
+        factory.createComposedOracle(address(0), feedB, 0, false, 0, 0, 100);
 
         vm.expectRevert(InvalidFeed.selector);
-        factory.createComposedOracle(feedA, address(0), 0, false, 0, 0);
+        factory.createComposedOracle(feedA, address(0), 0, false, 0, 0, 100);
     }
 
     function testListsAndGetters() public {
-        address oracle1 = factory.createComposedOracle(feedA, feedB, 0, false, 0, 0);
-        address oracle2 = factory.createComposedOracle(feedA, feedB, 1, false, 0, 0);
+        address oracle1 = factory.createComposedOracle(feedA, feedB, 0, false, 0, 0, 100);
+        address oracle2 = factory.createComposedOracle(feedA, feedB, 1, false, 0, 0, 100);
 
         ComposedOracleFactory.ComposedOracleInfo[] memory all = factory.allComposedOracles();
         assertEq(all.length, 2);

@@ -69,6 +69,7 @@ contract Oracle is Ownable, ReentrancyGuard {
     uint256 public immutable Q;                                   // governance constant used in blacklist equation
     uint256 public immutable REWARD_BPS;
     uint256 public immutable GAMMA;                               // minimal interval between entries recorded for extremes
+    uint256 public immutable defaultSampleSize;
 
     modifier notBlacklisted() {
         if (GovernanceLib.isBlacklisted(governance, msg.sender)) revert BlacklistedCaller();
@@ -80,12 +81,12 @@ contract Oracle is Ownable, ReentrancyGuard {
         _;
     }
 
-    constructor(address owner_, string memory name_,string memory description_, address weightToken_,uint256 halfLifeSeconds_,uint256 q_,uint256 depositLockingPeriod_,uint256 withdrawalLockingPeriod_,uint256 rewardBps_, uint256 gamma_) Ownable(owner_) {
+    constructor(address owner_, string memory name_,string memory description_, address weightToken_,uint256 halfLifeSeconds_,uint256 q_,uint256 depositLockingPeriod_,uint256 withdrawalLockingPeriod_,uint256 rewardBps_, uint256 gamma_, uint256 defaultSampleSize_) Ownable(owner_) {
         if (weightToken_ == address(0)) revert InvalidWeightTokenAddress();
         WEIGHT_TOKEN = IERC20(weightToken_); HALF_LIFE_SECONDS = halfLifeSeconds_;
         Q = q_; DEPOSIT_LOCKING_PERIOD = depositLockingPeriod_; WITHDRAWAL_LOCKING_PERIOD = withdrawalLockingPeriod_;
         lastTimestamp = block.timestamp; lastSubmissionTime = block.timestamp; REWARD_BPS = rewardBps_; name = name_; description = description_;
-        GAMMA = gamma_;
+        GAMMA = gamma_; defaultSampleSize = defaultSampleSize_;
     }
 
     receive() external payable {
@@ -147,38 +148,27 @@ contract Oracle is Ownable, ReentrancyGuard {
         return latestValue; 
     }
 
-    function readMaxValue(uint256 sampleSize) external view notBlacklisted returns (int256) {
+    function readValueInterval() external view notBlacklisted returns (int256 minValue, int256 maxValue) {
         if (history.length == 0) revert EmptyHistory();
-        if (sampleSize == 0) revert InvalidSampleSize();
+        if (defaultSampleSize == 0) revert InvalidSampleSize();
 
         uint256 historyLength = history.length;
+        uint256 sampleSize = defaultSampleSize;
         if (sampleSize > historyLength) sampleSize = historyLength;
 
-        int256 maxValue = history[historyLength - 1];
-        for (uint256 i = 1; i < sampleSize; ++i) {
-            int256 candidate = history[historyLength - 1 - i];
-            if (candidate > maxValue) {
-                maxValue = candidate;
-            }
-        }
-        return maxValue;
-    }
+        minValue = history[historyLength - 1];
+        maxValue = history[historyLength - 1];
 
-    function readMinValue(uint256 sampleSize) external view notBlacklisted returns (int256) {
-        if (history.length == 0) revert EmptyHistory();
-        if (sampleSize == 0) revert InvalidSampleSize();
-
-        uint256 historyLength = history.length;
-        if (sampleSize > historyLength) sampleSize = historyLength;
-
-        int256 minValue = history[historyLength - 1];
         for (uint256 i = 1; i < sampleSize; ++i) {
             int256 candidate = history[historyLength - 1 - i];
             if (candidate < minValue) {
                 minValue = candidate;
             }
+            if (candidate > maxValue) {
+                maxValue = candidate;
+            }
         }
-        return minValue;
+        return (minValue, maxValue);
     }
 
     function depositTokens(uint256 amount) external nonReentrant {

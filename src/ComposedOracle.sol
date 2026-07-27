@@ -21,6 +21,7 @@ abstract contract ComposedOracle {
     bool public immutable invertResult;
     uint8 public immutable decimalsA;
     uint8 public immutable decimalsB;
+    uint256 public immutable defaultSampleSize;
 
     uint256 private constant WAD = 1e18;
 
@@ -37,7 +38,7 @@ abstract contract ComposedOracle {
         _;
     }
 
-    constructor(address _feedA, address _feedB, bool _invertResult, uint8 _decimalsA, uint8 _decimalsB) {
+    constructor(address _feedA, address _feedB, bool _invertResult, uint8 _decimalsA, uint8 _decimalsB, uint256 _defaultSampleSize) {
         if (_feedA == address(0) || _feedB == address(0)) {
             revert InvalidFeedAddress();
         }
@@ -46,6 +47,7 @@ abstract contract ComposedOracle {
         invertResult = _invertResult;
         decimalsA = _decimalsA;
         decimalsB = _decimalsB;
+        defaultSampleSize = _defaultSampleSize;
     }
 
     function readValue() external view notBlacklisted returns (int256) {
@@ -68,16 +70,9 @@ abstract contract ComposedOracle {
 
     function _composeWithoutInversion(int256 valA, int256 valB) internal view virtual returns (int256);
 
-    function readMaxValue(uint256 sampleSize) external view notBlacklisted returns (int256) {
-        return _readExtremeValue(sampleSize, true);
-    }
+    function readValueInterval() external view notBlacklisted returns (int256 minValue, int256 maxValue) {
+        if (defaultSampleSize == 0) revert InvalidSampleSize();
 
-    function readMinValue(uint256 sampleSize) external view notBlacklisted returns (int256) {
-        return _readExtremeValue(sampleSize, false);
-    }
-
-    function _readExtremeValue(uint256 sampleSize, bool findMax) internal view returns (int256) {
-        if (sampleSize == 0) revert InvalidSampleSize();
         IOracle oracleA = IOracle(feedA);
         IOracle oracleB = IOracle(feedB);
 
@@ -87,10 +82,9 @@ abstract contract ComposedOracle {
         if (indexA == 0 || indexB == 0) revert EmptyHistory();
 
         uint256 composedCount;
-        int256 extremeValue;
         bool initialized;
 
-        while ((indexA > 0 && indexB > 0) && composedCount < sampleSize) {
+        while ((indexA > 0 && indexB > 0) && composedCount < defaultSampleSize) {
             uint256 timestampA = indexA > 0 ? oracleA.historyTimestamps(indexA - 1) : 0;
             uint256 timestampB = indexB > 0 ? oracleB.historyTimestamps(indexB - 1) : 0;
             uint256 currentTimestamp = timestampA >= timestampB ? timestampA : timestampB; // Process the latest remaining timestamp from either parent history.
@@ -98,12 +92,16 @@ abstract contract ComposedOracle {
             if (indexA > 0 && indexB > 0) { // indexA - 1 and indexB - 1 are the latest values available at this time.
                 int256 composedValue = _compose(oracleA.history(indexA - 1), oracleB.history(indexB - 1));
                 if (!initialized) {
-                    extremeValue = composedValue;
+                    minValue = composedValue;
+                    maxValue = composedValue;
                     initialized = true;
-                } else if (findMax && composedValue > extremeValue) {
-                    extremeValue = composedValue;
-                } else if (!findMax && composedValue < extremeValue) {
-                    extremeValue = composedValue;
+                } else {
+                    if (composedValue < minValue) {
+                        minValue = composedValue;
+                    }
+                    if (composedValue > maxValue) {
+                        maxValue = composedValue;
+                    }
                 }
                 composedCount++;
             }
@@ -112,7 +110,7 @@ abstract contract ComposedOracle {
         }
         if (composedCount == 0) revert EmptyHistory();
 
-        return extremeValue;
+        return (minValue, maxValue);
     }
 
     function lastSubmissionTime() external view returns (uint256) {
@@ -127,8 +125,8 @@ abstract contract ComposedOracle {
 }
 
 contract ComposedOracleByMultiplication is ComposedOracle {
-    constructor(address _feedA, address _feedB, bool _invertResult, uint8 _decimalsA, uint8 _decimalsB) 
-        ComposedOracle(_feedA, _feedB, _invertResult, _decimalsA, _decimalsB) {}
+    constructor(address _feedA, address _feedB, bool _invertResult, uint8 _decimalsA, uint8 _decimalsB, uint256 _defaultSampleSize) 
+        ComposedOracle(_feedA, _feedB, _invertResult, _decimalsA, _decimalsB, _defaultSampleSize) {}
 
     function _composeWithoutInversion(int256 valA, int256 valB) internal view override returns (int256) {
         uint256 scalingPower = decimalsA + decimalsB;
@@ -140,8 +138,8 @@ contract ComposedOracleByMultiplication is ComposedOracle {
 }
 
 contract ComposedOracleByDivision is ComposedOracle {
-    constructor(address _feedA, address _feedB, bool _invertResult, uint8 _decimalsA, uint8 _decimalsB) 
-        ComposedOracle(_feedA, _feedB, _invertResult, _decimalsA, _decimalsB) {}
+    constructor(address _feedA, address _feedB, bool _invertResult, uint8 _decimalsA, uint8 _decimalsB, uint256 _defaultSampleSize) 
+        ComposedOracle(_feedA, _feedB, _invertResult, _decimalsA, _decimalsB, _defaultSampleSize) {}
 
     function _composeWithoutInversion(int256 valA, int256 valB) internal view override returns (int256) {
         if (valB == 0) revert DivisionByZero();

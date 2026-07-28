@@ -50,6 +50,16 @@
 
 Orb Oracle is a decentralized price feed framework utilizing time-decayed weighted averages, dynamic staking weights, and governance-driven access control. It also supports composed pair feeds (cross-asset multiplication and division).
 
+## Value Ranges
+
+Orb Oracle exposes a current value together with a minimum and maximum value. This range helps represent uncertainty around the reported value.
+
+Many real world values are not best represented as one exact number. Exchange rates can have a spread, and measured values can have uncertainty. Because of this, the oracle provides the value range directly instead of requiring each consumer to calculate it separately.
+
+Current Orb oracles estimate this range from recent sampled history. The sample size is configured inside the oracle, while the shared interface keeps the range read functions parameter free.
+
+Orb oracles may expose history for transparency and composed oracle logic, but history access is not required by the shared oracle interface.
+
 ---
 
 ## Tech Stack

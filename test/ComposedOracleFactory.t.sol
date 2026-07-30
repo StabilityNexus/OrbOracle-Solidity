@@ -6,9 +6,9 @@ import {ComposedOracleFactory, InvalidFeed, InvalidOperation} from "../src/Compo
 import {ComposedOracle, ComposedOracleByMultiplication, ComposedOracleByDivision} from "../src/ComposedOracle.sol";
 
 contract MockOracle {
-    function readValue() external pure returns (int256) { return 100; }
-    function readLatestValue() external pure returns (int256) { return 100; }
-    function readValueInterval() external pure returns (int256, int256) { return (100, 100); }
+    function readValue() external pure returns (uint256) { return 100 * 1e18; }
+    function readLatestValue() external pure returns (uint256) { return 100 * 1e18; }
+    function readValueInterval() external pure returns (uint256, uint256) { return (100 * 1e18, 100 * 1e18); }
     function lastSubmissionTime() external pure returns (uint256) { return 0; }
     function isBlacklisted(address) external pure returns (bool) { return false; }
 }
@@ -26,7 +26,7 @@ contract ComposedOracleFactoryTest is Test {
     }
 
     function testDeployMultiplication() public {
-        address oracleAddr = factory.createComposedOracle(feedA, feedB, 0, false, 0, 0, 100);
+        address oracleAddr = factory.createComposedOracle(feedA, feedB, 0, false, 100);
         assertTrue(oracleAddr != address(0));
 
         // Check registry
@@ -37,13 +37,23 @@ contract ComposedOracleFactoryTest is Test {
         assertEq(info.operation, 0);
         assertEq(info.creator, address(this));
 
-        // Verify deployment returns correct price
-        int256 val = ComposedOracle(oracleAddr).readValue();
+        // Verify deployment returns correct price (100 * 100 / 1 = 10000 * 1e18)
+        uint256 val = ComposedOracle(oracleAddr).readValue();
         assertEq(val, 10000 * 1e18);
     }
 
+    // Multiplication Inverted
+    function testDeployMultiplicationInverted() public {
+        address oracleAddr = factory.createComposedOracle(feedA, feedB, 0, true, 100);
+        assertTrue(oracleAddr != address(0));
+
+        // Verify deployment returns inverted price (1e18 * 1e18 / (10000 * 1e18) = 1e14)
+        uint256 val = ComposedOracle(oracleAddr).readValue();
+        assertEq(val, 1e14);
+    }
+
     function testDeployDivision() public {
-        address oracleAddr = factory.createComposedOracle(feedA, feedB, 1, false, 0, 0, 100);
+        address oracleAddr = factory.createComposedOracle(feedA, feedB, 1, false, 100);
         assertTrue(oracleAddr != address(0));
 
         // Check registry
@@ -54,26 +64,26 @@ contract ComposedOracleFactoryTest is Test {
         assertEq(info.operation, 1);
 
         // Verify deployment returns correct price (100 / 100 = 1 * 1e18)
-        int256 val = ComposedOracle(oracleAddr).readValue();
+        uint256 val = ComposedOracle(oracleAddr).readValue();
         assertEq(val, 1 * 1e18);
     }
 
     function testRevertInvalidOperation() public {
         vm.expectRevert(InvalidOperation.selector);
-        factory.createComposedOracle(feedA, feedB, 2, false, 0, 0, 100);
+        factory.createComposedOracle(feedA, feedB, 2, false, 100);
     }
 
     function testRevertInvalidFeedAddress() public {
         vm.expectRevert(InvalidFeed.selector);
-        factory.createComposedOracle(address(0), feedB, 0, false, 0, 0, 100);
+        factory.createComposedOracle(address(0), feedB, 0, false, 100);
 
         vm.expectRevert(InvalidFeed.selector);
-        factory.createComposedOracle(feedA, address(0), 0, false, 0, 0, 100);
+        factory.createComposedOracle(feedA, address(0), 0, false, 100);
     }
 
     function testListsAndGetters() public {
-        address oracle1 = factory.createComposedOracle(feedA, feedB, 0, false, 0, 0, 100);
-        address oracle2 = factory.createComposedOracle(feedA, feedB, 1, false, 0, 0, 100);
+        address oracle1 = factory.createComposedOracle(feedA, feedB, 0, false, 100);
+        address oracle2 = factory.createComposedOracle(feedA, feedB, 1, false, 100);
 
         ComposedOracleFactory.ComposedOracleInfo[] memory all = factory.allComposedOracles();
         assertEq(all.length, 2);

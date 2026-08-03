@@ -35,9 +35,8 @@ abstract contract ComposedOracle {
     }
 
     constructor(address _feedA, address _feedB, bool _invertResult, uint256 _defaultSampleSize) {
-        if (_feedA == address(0) || _feedB == address(0)) {
-            revert InvalidFeedAddress();
-        }
+        if (_feedA == address(0) || _feedB == address(0)) revert InvalidFeedAddress();
+        if (_defaultSampleSize == 0) revert InvalidSampleSize();
         feedA = _feedA;
         feedB = _feedB;
         invertResult = _invertResult;
@@ -47,12 +46,14 @@ abstract contract ComposedOracle {
     function readValue() external view notBlacklisted returns (uint256) {
         uint256 valA = IOracle(feedA).readValue();
         uint256 valB = IOracle(feedB).readValue();
+
         return _compose(valA, valB);
     }
 
     function readLatestValue() external view notBlacklisted returns (uint256) {
         uint256 valA = IOracle(feedA).readLatestValue();
         uint256 valB = IOracle(feedB).readLatestValue();
+
         return _compose(valA, valB);
     }
 
@@ -63,14 +64,13 @@ abstract contract ComposedOracle {
             if (result == 0) revert DivisionByZero();
             return (WAD * WAD) / result;
         }
+
         return result;
     }
 
     function _composeWithoutInversion(uint256 valA, uint256 valB) internal view virtual returns (uint256);
 
     function readValueInterval() external view notBlacklisted returns (uint256 minValue, uint256 maxValue) {
-        if (defaultSampleSize == 0) revert InvalidSampleSize();
-
         IOracle oracleA = IOracle(feedA);
         IOracle oracleB = IOracle(feedB);
 
@@ -79,34 +79,37 @@ abstract contract ComposedOracle {
 
         if (indexA == 0 || indexB == 0) revert EmptyHistory();
 
-        uint256 composedCount;
-        bool initialized;
+        // Calculate and initialize min/max with the first (latest) composed value
+        uint256 timestampA = oracleA.historyTimestamps(indexA - 1);
+        uint256 timestampB = oracleB.historyTimestamps(indexB - 1);
+        uint256 currentTimestamp = timestampA >= timestampB ? timestampA : timestampB;
 
+        uint256 composedValue = _compose(oracleA.history(indexA - 1), oracleB.history(indexB - 1));
+        minValue = composedValue;
+        maxValue = composedValue;
+        uint256 composedCount = 1;
+
+        if (timestampA == currentTimestamp) indexA--;
+        if (timestampB == currentTimestamp) indexB--;
+
+        // Loop for the remaining sampleSize
         while ((indexA > 0 && indexB > 0) && composedCount < defaultSampleSize) {
-            uint256 timestampA = indexA > 0 ? oracleA.historyTimestamps(indexA - 1) : 0;
-            uint256 timestampB = indexB > 0 ? oracleB.historyTimestamps(indexB - 1) : 0;
-            uint256 currentTimestamp = timestampA >= timestampB ? timestampA : timestampB; // Process the latest remaining timestamp from either parent history.
+            timestampA = oracleA.historyTimestamps(indexA - 1);
+            timestampB = oracleB.historyTimestamps(indexB - 1);
+            currentTimestamp = timestampA >= timestampB ? timestampA : timestampB;
             
-            if (indexA > 0 && indexB > 0) { // indexA - 1 and indexB - 1 are the latest values available at this time.
-                uint256 composedValue = _compose(oracleA.history(indexA - 1), oracleB.history(indexB - 1));
-                if (!initialized) {
-                    minValue = composedValue;
-                    maxValue = composedValue;
-                    initialized = true;
-                } else {
-                    if (composedValue < minValue) {
-                        minValue = composedValue;
-                    }
-                    if (composedValue > maxValue) {
-                        maxValue = composedValue;
-                    }
-                }
-                composedCount++;
+            composedValue = _compose(oracleA.history(indexA - 1), oracleB.history(indexB - 1));
+            if (composedValue < minValue) {
+                minValue = composedValue;
             }
-            if (indexA > 0 && timestampA == currentTimestamp) indexA--;
-            if (indexB > 0 && timestampB == currentTimestamp) indexB--;
+            if (composedValue > maxValue) {
+                maxValue = composedValue;
+            }
+            composedCount++;
+            
+            if (timestampA == currentTimestamp) indexA--;
+            if (timestampB == currentTimestamp) indexB--;
         }
-        if (composedCount == 0) revert EmptyHistory();
 
         return (minValue, maxValue);
     }
@@ -123,7 +126,8 @@ abstract contract ComposedOracle {
 }
 
 contract ComposedOracleByMultiplication is ComposedOracle {
-    constructor(address _feedA, address _feedB, bool _invertResult, uint256 _defaultSampleSize) ComposedOracle(_feedA, _feedB, _invertResult, _defaultSampleSize) {}
+    constructor(address _feedA, address _feedB, bool _invertResult, uint256 _defaultSampleSize) 
+        ComposedOracle(_feedA, _feedB, _invertResult, _defaultSampleSize) {}
 
     function _composeWithoutInversion(uint256 valA, uint256 valB) internal pure override returns (uint256) {
         return (valA * valB) / 1e18;

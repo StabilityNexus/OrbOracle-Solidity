@@ -83,6 +83,7 @@ contract Oracle is Ownable, ReentrancyGuard {
 
     constructor(address owner_, string memory name_,string memory description_, address weightToken_,uint256 halfLifeSeconds_,uint256 q_,uint256 depositLockingPeriod_,uint256 withdrawalLockingPeriod_,uint256 rewardBps_, uint256 gamma_, uint256 defaultSampleSize_) Ownable(owner_) {
         if (weightToken_ == address(0)) revert InvalidWeightTokenAddress();
+        if (defaultSampleSize_ == 0) revert InvalidSampleSize();
         WEIGHT_TOKEN = IERC20(weightToken_); HALF_LIFE_SECONDS = halfLifeSeconds_;
         Q = q_; DEPOSIT_LOCKING_PERIOD = depositLockingPeriod_; WITHDRAWAL_LOCKING_PERIOD = withdrawalLockingPeriod_;
         lastTimestamp = block.timestamp; lastSubmissionTime = block.timestamp; REWARD_BPS = rewardBps_; name = name_; description = description_;
@@ -156,7 +157,6 @@ contract Oracle is Ownable, ReentrancyGuard {
 
     function readValueInterval() external view notBlacklisted returns (uint256 minValue, uint256 maxValue) {
         if (history.length == 0) revert EmptyHistory();
-        if (defaultSampleSize == 0) revert InvalidSampleSize();
 
         uint256 historyLength = history.length;
         uint256 sampleSize = defaultSampleSize;

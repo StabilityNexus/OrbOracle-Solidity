@@ -123,9 +123,8 @@ contract ComposedOracleTest is Test {
         feedA.pushHistory(10, 2);
         feedB.pushHistory(10, 100);
 
-        ComposedOracle composed = _newMulComposed(0);
         vm.expectRevert(ComposedOracle.InvalidSampleSize.selector);
-        composed.readValueInterval();
+        _newMulComposed(0);
     }
 
     function testReadIntervalRevertsForEmptyHistory() public {

@@ -9,7 +9,7 @@ contract MockOracle {
     function readValue() external pure returns (uint256) { return 100 * 1e18; }
     function readLatestValue() external pure returns (uint256) { return 100 * 1e18; }
     function readValueInterval() external pure returns (uint256, uint256) { return (100 * 1e18, 100 * 1e18); }
-    function lastSubmissionTime() external pure returns (uint256) { return 0; }
+    function lastUpdated() external pure returns (uint256) { return 0; }
     function isBlacklisted(address) external pure returns (bool) { return false; }
 }
 

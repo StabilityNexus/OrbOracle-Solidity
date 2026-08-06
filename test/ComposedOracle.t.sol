@@ -36,11 +36,11 @@ contract MockOracle {
         price = _price;
     }
 
-    function lastSubmissionTime() external view returns (uint256) {
+    function lastUpdated() external view returns (uint256) {
         return lastSubTime;
     }
 
-    function setLastSubmissionTime(uint256 _time) external {
+    function setLastUpdated(uint256 _time) external {
         lastSubTime = _time;
     }
 
@@ -200,15 +200,15 @@ contract ComposedOracleTest is Test {
         assertEq(composed.readValue(), 12 * 1e18);
     }
 
-    function testLastSubmissionTimeMin() public {
+    function testLastUpdatedMin() public {
         ComposedOracle composed = new ComposedOracleByMultiplication(address(feedA), address(feedB), false, 100);
-        feedA.setLastSubmissionTime(1000);
-        feedB.setLastSubmissionTime(2000);
-        assertEq(composed.lastSubmissionTime(), 1000);
+        feedA.setLastUpdated(1000);
+        feedB.setLastUpdated(2000);
+        assertEq(composed.lastUpdated(), 1000);
 
-        feedA.setLastSubmissionTime(3000);
-        feedB.setLastSubmissionTime(1500);
-        assertEq(composed.lastSubmissionTime(), 1500);
+        feedA.setLastUpdated(3000);
+        feedB.setLastUpdated(1500);
+        assertEq(composed.lastUpdated(), 1500);
     }
 
     function testNestedComposedOracleBlacklist() public {

@@ -5,7 +5,7 @@ pragma solidity ^0.8.20;
 interface IOracle {
     function readValue() external view returns (uint256);
     function readLatestValue() external view returns (uint256);
-    function lastSubmissionTime() external view returns (uint256);
+    function lastUpdated() external view returns (uint256);
     function isBlacklisted(address target) external view returns (bool);
     function history(uint256 index) external view returns (uint256);                 // sampled value at index
     function historyTimestamps(uint256 index) external view returns (uint256);      // timestamp for sampled value
@@ -114,9 +114,9 @@ abstract contract ComposedOracle {
         return (minValue, maxValue);
     }
 
-    function lastSubmissionTime() external view returns (uint256) {
-        uint256 timeA = IOracle(feedA).lastSubmissionTime();
-        uint256 timeB = IOracle(feedB).lastSubmissionTime();
+    function lastUpdated() external view returns (uint256) {
+        uint256 timeA = IOracle(feedA).lastUpdated();
+        uint256 timeB = IOracle(feedB).lastUpdated();
         return timeA < timeB ? timeA : timeB;
     }
 

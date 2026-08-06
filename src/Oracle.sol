@@ -58,7 +58,7 @@ contract Oracle is Ownable, ReentrancyGuard {
     uint256 private latestValue;                                 // most recent raw submission
     uint256 private aggregatedValue;                             // last aggregated price (decayed weighted mean) 
     uint256 private aggregatedWeight;                            // last decayed total weight
-    uint256 public lastSubmissionTime;                           // Global last update time of a price submission
+    uint256 public lastUpdated;                                  // Global last update time of a price submission
     uint256 public lastTimestamp;                                // Global last update time of a oracle operation
     string public name;
     string public description;
@@ -86,7 +86,7 @@ contract Oracle is Ownable, ReentrancyGuard {
         if (defaultSampleSize_ == 0) revert InvalidSampleSize();
         WEIGHT_TOKEN = IERC20(weightToken_); HALF_LIFE_SECONDS = halfLifeSeconds_;
         Q = q_; DEPOSIT_LOCKING_PERIOD = depositLockingPeriod_; WITHDRAWAL_LOCKING_PERIOD = withdrawalLockingPeriod_;
-        lastTimestamp = block.timestamp; lastSubmissionTime = block.timestamp; REWARD_BPS = rewardBps_; name = name_; description = description_;
+        lastTimestamp = block.timestamp; lastUpdated = block.timestamp; REWARD_BPS = rewardBps_; name = name_; description = description_;
         GAMMA = gamma_; defaultSampleSize = defaultSampleSize_;
     }
 
@@ -105,7 +105,7 @@ contract Oracle is Ownable, ReentrancyGuard {
         lastTimestamp = nowTs;
         uint256 w = unlockedTokens[msg.sender];                                                        // Using unlocked tokens as weight
 
-        uint256 decayedQ = DecayLib.applyDecay(aggregatedWeight, nowTs - lastSubmissionTime, HALF_LIFE_SECONDS); 
+        uint256 decayedQ = DecayLib.applyDecay(aggregatedWeight, nowTs - lastUpdated, HALF_LIFE_SECONDS); 
 
         uint256 lastT = tof[msg.sender]; 
         uint256 oldWeight = wof[msg.sender]; 
@@ -135,7 +135,7 @@ contract Oracle is Ownable, ReentrancyGuard {
         // Update all state variables
         aggregatedValue = newP; aggregatedWeight = newQ;
         pof[msg.sender] = newValue; wof[msg.sender] = w; tof[msg.sender] = nowTs;
-        lastSubmissionTime = nowTs; latestValue = newValue;
+        lastUpdated = nowTs; latestValue = newValue;
         priceHistory[nowTs] = newP; latestValueHistory[nowTs] = newValue; priceTimestamps.push(nowTs);
 
         uint256 lastRecordedTs = historyTimestamps.length == 0 ? 0 : historyTimestamps[historyTimestamps.length - 1];

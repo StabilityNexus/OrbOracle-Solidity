@@ -9,14 +9,14 @@ This document lists the individuals fulfilling the key roles of [Maintainer](htt
 | Name | GitHub Username | Discord Username | Project / Feature Idea          | Area / Focus         | Proposal / Discussion Link                  |
 | ---- | --------------- | ---------------- | ------------------------------- | -------------------- | ------------------------------------------- |
 | Bruno | [@Zahnentferner](https://github.com/Zahnentferner) | @b.wp | Orb Oracle Protocol | Solidity Architecture | [Organization](https://github.com/StabilityNexus) |
-| Sarthak | [@sarthak09385](https://github.com/sarthak09385) | @sarthak_09385 | Orb Oracle Protocol | Solidity Architecture | [Organization](https://github.com/StabilityNexus) |
+| Sarthak | [@sarthak09385](https://github.com/DengreSarthak) | @sarthak_09385 | Orb Oracle Protocol | Solidity Architecture | [Organization](https://github.com/StabilityNexus) |
 
 ## Mentors
 
 | Name | GitHub Username | Discord Username | Area / Focus                        |
 | ---- | --------------- | ---------------- | ----------------------------------- |
 | Bruno | [@Zahnentferner](https://github.com/Zahnentferner) | @b.wp | Core Protocol & Smart Contracts |
-| Sarthak | [@sarthak09385](https://github.com/sarthak09385) | @sarthak_09385 | Core Protocol & Smart Contracts |
+| Sarthak | [@sarthak09385](https://github.com/DengreSarthak) | @sarthak_09385 | Core Protocol & Smart Contracts |
 
 ## Maintainers
 

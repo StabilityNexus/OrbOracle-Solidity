@@ -4,7 +4,6 @@
 <!-- Organization Logo -->
 <div align="center" style="display: flex; align-items: center; justify-content: center; gap: 16px;">
   <img alt="Stability Nexus" src="public/stability.svg" width="175">
-  <img src="public/todo-project-logo.svg" width="175" />
 </div>
 
 &nbsp;
@@ -12,9 +11,8 @@
 <!-- Organization Name -->
 <div align="center">
 
-[![Static Badge](https://img.shields.io/badge/Stability_Nexus-/TODO-228B22?style=for-the-badge&labelColor=FFC517)](https://TODO.stability.nexus/)
-
-<!-- Correct deployed url to be added -->
+[![Static Badge](https://img.shields.io/badge/Stability_Nexus-OrbOracle-228B22?style=for-the-badge&labelColor=FFC517)](https://stability.nexus/)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/StabilityNexus/OrbOracle-Solidity/badge)](https://scorecard.dev/viewer/?uri=github.com/StabilityNexus/OrbOracle-Solidity)
 
 </div>
 
@@ -48,34 +46,28 @@
 ---
 
 <div align="center">
-<h1>TODO: Project Name</h1>
+<h1>Orb Oracle (Smart Contracts)</h1>
 </div>
 
-[TODO](https://TODO.stability.nexus/) is a ... TODO: Project Description.
+Orb Oracle is a decentralized price feed framework utilizing time-decayed weighted averages, dynamic staking weights, and governance-driven access control. It also supports composed pair feeds (cross-asset multiplication and division).
+
+## Value Ranges
+
+Orb Oracle exposes a current value together with a minimum and maximum value. This range helps represent uncertainty around the reported value.
+
+Many real world values are not best represented as one exact number. Exchange rates can have a spread, and measured values can have uncertainty. Because of this, the oracle provides the value range directly instead of requiring each consumer to calculate it separately.
+
+Current Orb oracles estimate this range from recent sampled history. The sample size is configured inside the oracle, while the shared interface keeps the range read functions parameter free.
+
+Orb oracles may expose history for transparency and composed oracle logic, but history access is not required by the shared oracle interface.
 
 ---
 
 ## Tech Stack
 
-TODO:
-
-### Frontend
-
-TODO:
-
-- Next.js 14+ (React)
-- TypeScript
-- TailwindCSS
-- shadcn/ui
-
-### Blockchain
-
-TODO:
-
-- Wagmi
-- Solidity Smart Contracts
-- Ethers.js
-- Rainbow-Kit Wallet Integration
+* **Smart Contracts:** Solidity (^0.8.20)
+* **Development Framework:** [Foundry](https://getfoundry.sh/) (Forge, Cast, Anvil)
+* **Libraries:** OpenZeppelin Contracts, Forge Standard Library (`forge-std`)
 
 ---
 
@@ -83,50 +75,31 @@ TODO:
 
 ### Prerequisites
 
-TODO
+* [Git](https://git-scm.com/)
+* [Foundry](https://getfoundry.sh/) (Forge, Cast, Anvil)
 
-- Node.js 18+
-- npm/yarn/pnpm
-- MetaMask or any other web3 wallet browser extension
-
-### Installation
-
-TODO
+### Installation & Compilation
 
 #### 1. Clone the Repository
-
 ```bash
-git clone https://github.com/StabilityNexus/TODO.git
-cd TODO
+git clone https://github.com/StabilityNexus/OrbOracle-Solidity.git
+cd OrbOracle-Solidity
 ```
 
-#### 2. Install Dependencies
-
-Using your preferred package manager:
-
+#### 2. Install Submodules & Dependencies
 ```bash
-npm install
-# or
-yarn install
-# or
-pnpm install
+forge install
 ```
 
-#### 3. Run the Development Server
-
-Start the app locally:
-
+#### 3. Build the Smart Contracts
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
+forge build
 ```
 
-#### 4. Open your Browser
-
-Navigate to [http://localhost:3000](http://localhost:3000) to see the application.
+#### 4. Run the Unit Tests
+```bash
+forge test
+```
 
 ---
 
@@ -137,16 +110,15 @@ We welcome contributions of all kinds! To contribute:
 1. Fork the repository and create your feature branch (`git checkout -b feature/AmazingFeature`).
 2. Commit your changes (`git commit -m 'Add some AmazingFeature'`).
 3. Run the development workflow commands to ensure code quality:
-   - `npm run format:write`
-   - `npm run lint:fix`
-   - `npm run typecheck`
+   - `forge fmt`
+   - `forge test`
 4. Push your branch (`git push origin feature/AmazingFeature`).
 5. Open a Pull Request for review.
 
 If you encounter bugs, need help, or have feature requests:
 
-- Please open an issue in this repository providing detailed information.
-- Describe the problem clearly and include any relevant logs or screenshots.
+* Please open an issue in this repository providing detailed information.
+* Describe the problem clearly and include any relevant logs or screenshots.
 
 We appreciate your feedback and contributions!
 

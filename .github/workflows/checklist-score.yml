@@ -14,7 +14,7 @@ permissions:
 jobs:
   update-score:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -114,14 +114,14 @@ jobs:
 
           cats = status["categories"]
           table = f"""| Category           | Met | Total | Status |
-|--------------------|-----|-------|--------|
-| Basics             | {cats['basics']['met']}   | {cats['basics']['total']}     | {get_status_icon(cats['basics']['met'], cats['basics']['total'])}     |
-| Change Control     | {cats['change_control']['met']}   | {cats['change_control']['total']}     | {get_status_icon(cats['change_control']['met'], cats['change_control']['total'])}     |
-| Reporting          | {cats['reporting']['met']}   | {cats['reporting']['total']}     | {get_status_icon(cats['reporting']['met'], cats['reporting']['total'])}     |
-| Quality            | {cats['quality']['met']}   | {cats['quality']['total']}     | {get_status_icon(cats['quality']['met'], cats['quality']['total'])}     |
-| Security           | {cats['security']['met']}   | {cats['security']['total']}     | {get_status_icon(cats['security']['met'], cats['security']['total'])}     |
-| Analysis           | {cats['analysis']['met']}   | {cats['analysis']['total']}     | {get_status_icon(cats['analysis']['met'], cats['analysis']['total'])}     |
-| **Total**          | **{status['met']}** | **{status['total']}** | **{status['percent']}%** |"""
+          |--------------------|-----|-------|--------|
+          | Basics             | {cats['basics']['met']}   | {cats['basics']['total']}     | {get_status_icon(cats['basics']['met'], cats['basics']['total'])}     |
+          | Change Control     | {cats['change_control']['met']}   | {cats['change_control']['total']}     | {get_status_icon(cats['change_control']['met'], cats['change_control']['total'])}     |
+          | Reporting          | {cats['reporting']['met']}   | {cats['reporting']['total']}     | {get_status_icon(cats['reporting']['met'], cats['reporting']['total'])}     |
+          | Quality            | {cats['quality']['met']}   | {cats['quality']['total']}     | {get_status_icon(cats['quality']['met'], cats['quality']['total'])}     |
+          | Security           | {cats['security']['met']}   | {cats['security']['total']}     | {get_status_icon(cats['security']['met'], cats['security']['total'])}     |
+          | Analysis           | {cats['analysis']['met']}   | {cats['analysis']['total']}     | {get_status_icon(cats['analysis']['met'], cats['analysis']['total'])}     |
+          | **Total**          | **{status['met']}** | **{status['total']}** | **{status['percent']}%** |"""
 
           with open("BestPracticesChecklist.md", "r") as f:
               content = f.read()

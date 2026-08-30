@@ -23,7 +23,7 @@ error InvalidSampleSize();
 
 contract Oracle is Ownable, ReentrancyGuard {
 
-    event ValueSubmitted(address indexed submitter, uint256 indexed timestamp, int256 submittedValue, int256 aggregatedValue, uint256 weight, uint256 rewardWei);
+    event ValueSubmitted(address indexed submitter, uint256 indexed timestamp, uint256 submittedValue, uint256 aggregatedValue, uint256 weight, uint256 rewardWei);
     event Funded(address indexed from, uint256 amount);
     event TokenDeposited(address indexed user, uint256 amount);
     event TokenWithdrawn(address indexed user, uint256 amount);
@@ -41,24 +41,24 @@ contract Oracle is Ownable, ReentrancyGuard {
     
     GovernanceLib.GovernanceData private governance;
 
-    mapping(address => int256) private pof;                     // P(x): last submitted price by x 
+    mapping(address => uint256) private pof;                     // P(x): last submitted price by x 
     mapping(address => uint256) private wof;                    // W(x): weight of x 
     mapping(address => uint256) private tof;                    // T(x): last submission time of x 
 
     // Price history tracking
-    mapping(uint256 => int256) public priceHistory;              // timestamp => aggregated price at that time
-    mapping(uint256 => int256) public latestValueHistory;        // timestamp => latest raw submission at that time 
+    mapping(uint256 => uint256) public priceHistory;              // timestamp => aggregated price at that time
+    mapping(uint256 => uint256) public latestValueHistory;        // timestamp => latest raw submission at that time 
     uint256[] public priceTimestamps;                            // array of timestamps when price was updated
-    int256[] public history;                             // historical aggregated values sampled at fixed interval
+    uint256[] public history;                             // historical aggregated values sampled at fixed interval
     uint256[] public historyTimestamps;                  // timestamps corresponding to entries in history
 
     uint256 private constant DENOMINATOR = 1e5;
     uint256 private constant WAD = 1e18;
 
-    int256  private latestValue;                                 // most recent raw submission
-    int256  private aggregatedValue;                             // last aggregated price (decayed weighted mean) 
+    uint256 private latestValue;                                 // most recent raw submission
+    uint256 private aggregatedValue;                             // last aggregated price (decayed weighted mean) 
     uint256 private aggregatedWeight;                            // last decayed total weight
-    uint256 public lastSubmissionTime;                           // Global last update time of a price submission
+    uint256 public lastUpdated;                                  // Global last update time of a price submission
     uint256 public lastTimestamp;                                // Global last update time of a oracle operation
     string public name;
     string public description;
@@ -86,7 +86,7 @@ contract Oracle is Ownable, ReentrancyGuard {
         if (defaultSampleSize_ == 0) revert InvalidSampleSize();
         WEIGHT_TOKEN = IERC20(weightToken_); HALF_LIFE_SECONDS = halfLifeSeconds_;
         Q = q_; DEPOSIT_LOCKING_PERIOD = depositLockingPeriod_; WITHDRAWAL_LOCKING_PERIOD = withdrawalLockingPeriod_;
-        lastTimestamp = block.timestamp; lastSubmissionTime = block.timestamp; REWARD_BPS = rewardBps_; name = name_; description = description_;
+        lastTimestamp = block.timestamp; lastUpdated = block.timestamp; REWARD_BPS = rewardBps_; name = name_; description = description_;
         GAMMA = gamma_; defaultSampleSize = defaultSampleSize_;
     }
 
@@ -99,25 +99,31 @@ contract Oracle is Ownable, ReentrancyGuard {
         emit Funded(msg.sender, msg.value);
     }
 
-    function submitValue(int256 newValue) external nonReentrant onlyTokenHolder {
+    function submitValue(uint256 newValue) external nonReentrant onlyTokenHolder {
         uint256 nowTs = block.timestamp;
         lastOperationTimestamp[msg.sender] = nowTs;
         lastTimestamp = nowTs;
         uint256 w = unlockedTokens[msg.sender];                                                        // Using unlocked tokens as weight
 
-        uint256 decayedQ = DecayLib.applyDecay(aggregatedWeight, nowTs - lastSubmissionTime, HALF_LIFE_SECONDS); 
+        uint256 decayedQ = DecayLib.applyDecay(aggregatedWeight, nowTs - lastUpdated, HALF_LIFE_SECONDS); 
 
         uint256 lastT = tof[msg.sender]; 
         uint256 oldWeight = wof[msg.sender]; 
-        int256 oldPrice = pof[msg.sender];  
+        uint256 oldPrice = pof[msg.sender];  
         
         uint256 timeSinceUser = nowTs - lastT;
         uint256 userWeightDecayed = DecayLib.applyDecay(oldWeight, timeSinceUser, HALF_LIFE_SECONDS); // Calculate decayed contributions 
 
-        int256 numerator = aggregatedValue * int256(decayedQ) - oldPrice * int256(userWeightDecayed); // Calculate new weighted average
+        uint256 sub = oldPrice * userWeightDecayed;
+        uint256 numerator; // Calculate new weighted average
+        if (aggregatedValue * decayedQ > sub) {
+            numerator = aggregatedValue * decayedQ - sub;
+        } else {
+            numerator = 0;
+        }
         uint256 newQ = decayedQ - userWeightDecayed + w;
-        numerator += newValue * int256(w);
-        int256 newP = numerator / int256(newQ); 
+        numerator += newValue * w;
+        uint256 newP = numerator / newQ; 
         
         uint256 rewardPool = (address(this).balance * REWARD_BPS) / DENOMINATOR;                     // Portion of balance reserved for rewards
         uint256 rewardToSubmitter = calculateReward(rewardPool, w, timeSinceUser, decayedQ);
@@ -129,7 +135,7 @@ contract Oracle is Ownable, ReentrancyGuard {
         // Update all state variables
         aggregatedValue = newP; aggregatedWeight = newQ;
         pof[msg.sender] = newValue; wof[msg.sender] = w; tof[msg.sender] = nowTs;
-        lastSubmissionTime = nowTs; latestValue = newValue;
+        lastUpdated = nowTs; latestValue = newValue;
         priceHistory[nowTs] = newP; latestValueHistory[nowTs] = newValue; priceTimestamps.push(nowTs);
 
         uint256 lastRecordedTs = historyTimestamps.length == 0 ? 0 : historyTimestamps[historyTimestamps.length - 1];
@@ -141,15 +147,15 @@ contract Oracle is Ownable, ReentrancyGuard {
         emit ValueSubmitted(msg.sender, nowTs, newValue, newP, w, rewardToSubmitter);
     }
 
-    function readValue() external view notBlacklisted returns (int256) { 
+    function readValue() external view notBlacklisted returns (uint256) { 
         return aggregatedValue; 
     }
     
-    function readLatestValue() external view notBlacklisted returns (int256) { 
+    function readLatestValue() external view notBlacklisted returns (uint256) { 
         return latestValue; 
     }
 
-    function readValueInterval() external view notBlacklisted returns (int256 minValue, int256 maxValue) {
+    function readValueInterval() external view notBlacklisted returns (uint256 minValue, uint256 maxValue) {
         if (history.length == 0) revert EmptyHistory();
 
         uint256 historyLength = history.length;
@@ -160,7 +166,7 @@ contract Oracle is Ownable, ReentrancyGuard {
         maxValue = history[historyLength - 1];
 
         for (uint256 i = 1; i < sampleSize; ++i) {
-            int256 candidate = history[historyLength - 1 - i];
+            uint256 candidate = history[historyLength - 1 - i];
             if (candidate < minValue) {
                 minValue = candidate;
             }
@@ -235,15 +241,15 @@ contract Oracle is Ownable, ReentrancyGuard {
         }
     }
     
-    function getPriceHistoryRange(uint256 startIndex, uint256 endIndex) external view returns ( uint256[] memory timestamps,  int256[] memory aggregatedPrices, int256[] memory latestValues) {
+    function getPriceHistoryRange(uint256 startIndex, uint256 endIndex) external view returns ( uint256[] memory timestamps,  uint256[] memory aggregatedPrices, uint256[] memory latestValues) {
         if (startIndex >= priceTimestamps.length) revert PriceHistoryStartOutOfBounds();
         if (endIndex > priceTimestamps.length) revert PriceHistoryEndOutOfBounds();
         if (startIndex >= endIndex) revert InvalidPriceHistoryRange();
         
         uint256 length = endIndex - startIndex;
         timestamps = new uint256[](length);
-        aggregatedPrices = new int256[](length);
-        latestValues = new int256[](length);
+        aggregatedPrices = new uint256[](length);
+        latestValues = new uint256[](length);
         
         for (uint256 i = 0; i < length; i++) {
             uint256 timestamp = priceTimestamps[startIndex + i];
@@ -255,7 +261,7 @@ contract Oracle is Ownable, ReentrancyGuard {
 
     function getVotes(address target) external view returns (uint256 blacklistVotesCount, uint256 whitelistVotesCount) { return GovernanceLib.getVotes(governance, target); }
     function isBlacklisted(address target) external view returns (bool) { return GovernanceLib.isBlacklisted(governance, target); }
-    function getSubmitterInfo(address submitter) external view returns (int256 lastSubmittedPrice, uint256 lastWeight, uint256 lastSubmittedTime) { return (pof[submitter], wof[submitter], tof[submitter]); }
+    function getSubmitterInfo(address submitter) external view returns (uint256 lastSubmittedPrice, uint256 lastWeight, uint256 lastSubmittedTime) { return (pof[submitter], wof[submitter], tof[submitter]); }
     function getPriceHistoryLength() external view returns (uint256) { return priceTimestamps.length; }
     function getHistoryLength() external view returns (uint256) { return history.length; } // number of sampled history entries
 }

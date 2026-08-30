@@ -12,6 +12,7 @@
 <div align="center">
 
 [![Static Badge](https://img.shields.io/badge/Stability_Nexus-OrbOracle-228B22?style=for-the-badge&labelColor=FFC517)](https://stability.nexus/)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/StabilityNexus/OrbOracle-Solidity/badge)](https://scorecard.dev/viewer/?uri=github.com/StabilityNexus/OrbOracle-Solidity)
 
 </div>
 

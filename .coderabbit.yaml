@@ -1,0 +1,117 @@
+# Enables IDE autocompletion for this config file
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+# Language for CodeRabbit's review comments
+language: en
+
+# Enable experimental features
+early_access: true
+
+chat:
+  # CodeRabbit will automatically respond to @coderabbitai mentions in PR comments
+  auto_reply: true
+
+issue_enrichment:
+  labeling:
+    auto_apply_labels: true
+    labeling_instructions:
+      - label: bug
+        instructions: Issues reporting contract logic errors, unexpected reverts, math flaws, or security vulnerabilities.
+      - label: enhancement
+        instructions: Contract optimizations, gas reductions, refactoring, or new oracle composition primitives.
+      - label: documentation
+        instructions: Updates to NatSpec comments, README, CONTRIBUTING, or architecture documentation.
+
+reviews:
+  profile: assertive # Options: chill, assertive
+
+  auto_review:
+    enabled: true
+    ignore_title_keywords:
+      - "WIP"
+    drafts: false
+    base_branches:
+      - main
+      - develop
+
+  high_level_summary: true
+  sequence_diagrams: true
+  poem: true
+  review_status: true
+  collapse_walkthrough: false
+  changed_files_summary: true
+  request_changes_workflow: true
+
+  pre_merge_checks:
+    description:
+      mode: warning
+
+  # Exclude smart contract build artifacts, cache, and external libraries
+  path_filters:
+    - "!**/lib/**" # Submodule dependencies (OpenZeppelin, forge-std)
+    - "!**/out/**" # Foundry build artifacts
+    - "!**/cache/**" # Foundry compiler cache
+
+  # Tools used when reviewing
+  tools:
+    markdownlint:
+      enabled: true
+    github-checks:
+      enabled: true
+      timeout_ms: 90000
+    languagetool:
+      enabled: true
+      enabled_only: false
+      level: default
+    yamllint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    checkov:
+      enabled: true
+
+  # Apply labels to PRs
+  labeling_instructions:
+    - label: Solidity Lang
+      instructions: Apply when the PR contains changes to Solidity smart contracts (.sol).
+    - label: Foundry Scripts / Tests
+      instructions: Apply when the PR contains changes to test files or deployment scripts.
+    - label: Documentation
+      instructions: Apply whenever markdown source code or contract NatSpec documentation is updated.
+    - label: Linter / Format
+      instructions: Apply when the purpose of the PR is related to forge fmt or linter updates.
+
+  # Review instructions for all files
+  instructions: >-
+    - Verify smart contract logic for precision, math safety, and gas efficiency
+    - Ensure fixed-point operations use 18 decimals WAD (1e18) correctly
+    - Verify that custom errors are used instead of require statements with strings
+    - Check that state-changing functions emit events consistently
+    - Ensure comprehensive unit and fuzz test coverage for all new functionality
+
+  # Custom review instructions for specific file patterns
+  path_instructions:
+    # Solidity Smart Contract files
+    - path: "src/**/*.sol"
+      instructions: |
+        Solidity Smart Contracts:
+        - Verify custom error declarations (e.g. revert InvalidSampleSize()) instead of require strings.
+        - Check immutability and visibility modifiers for all state variables and functions.
+        - Ensure WAD fixed-point math (1e18) handles scaling, multiplication, and division safely without precision loss.
+        - Verify correct access control enforcement and state updates.
+        - Check gas optimization opportunities (e.g. caching array lengths, moving immutable validations to constructor).
+
+    # Foundry Test files
+    - path: "test/**/*.sol"
+      instructions: |
+        Foundry Tests:
+        - Ensure full coverage of success paths, edge cases, and revert scenarios (vm.expectRevert).
+        - Verify fuzz test parameters and bound inputs appropriately.
+        - Ensure test functions have descriptive names reflecting expected contract assertions.
+
+    # Deployment Scripts
+    - path: "script/**/*.sol"
+      instructions: |
+        Foundry Scripts:
+        - Check deployment configuration and environment variable loading.
+        - Ensure contract deployment addresses and constructor parameters are accurately wired.

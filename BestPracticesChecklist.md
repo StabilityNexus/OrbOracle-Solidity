@@ -28,7 +28,7 @@
 | Basics             | 8   | 8     | 🟢     |
 | Change Control     | 6   | 6     | 🟢     |
 | Reporting          | 8   | 8     | 🟢     |
-| Quality            | 11  | 11     | 🟢     |
+| Quality            | 11   | 11     | 🟢     |
 | Security           | 9   | 9     | 🟢     |
 | Analysis           | 7   | 7     | 🟢     |
 | **Total**          | **49** | **49** | **100%** |

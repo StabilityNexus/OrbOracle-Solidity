@@ -28,6 +28,9 @@ contract MockOracle {
         return price;
     }
 
+    function readLatestValue() external view returns (int256) {
+        return price;
+    }
 
     function setPrice(int256 _price) external {
         price = _price;
@@ -258,5 +261,18 @@ contract ComposedOracleTest is Test {
         // 6. Un-blacklist and verify readValue works (20 * 1e18 / 5 = 4 * 1e18)
         feedA.setBlacklisted(address(this), false);
         assertEq(nestedComposed.readValue(), 4 * 1e18);
+    }
+
+    function testReadLatestValue() public {
+        feedA.setPrice(10);
+        feedB.setPrice(2);
+
+        ComposedOracle composed = new ComposedOracleByMultiplication(address(feedA), address(feedB), false, 0, 0, 100);
+        assertEq(composed.readLatestValue(), 20 * 1e18);
+
+        // Blacklist caller check for readLatestValue
+        feedA.setBlacklisted(address(this), true);
+        vm.expectRevert(ComposedOracle.BlacklistedCaller.selector);
+        composed.readLatestValue();
     }
 }

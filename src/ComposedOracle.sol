@@ -5,6 +5,8 @@ pragma solidity ^0.8.20;
 interface IOracle {
     function readValue() external view returns (int256);
 
+    function readLatestValue() external view returns (int256);
+
     function lastSubmissionTime() external view returns (uint256);
 
     function isBlacklisted(address target) external view returns (bool);
@@ -52,6 +54,13 @@ abstract contract ComposedOracle {
     function readValue() external view notBlacklisted returns (int256) {
         int256 valA = IOracle(feedA).readValue();
         int256 valB = IOracle(feedB).readValue();
+
+        return _compose(valA, valB);
+    }
+
+    function readLatestValue() external view notBlacklisted returns (int256) {
+        int256 valA = IOracle(feedA).readLatestValue();
+        int256 valB = IOracle(feedB).readLatestValue();
 
         return _compose(valA, valB);
     }

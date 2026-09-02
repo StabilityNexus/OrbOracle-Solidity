@@ -5,7 +5,9 @@ pragma solidity ^0.8.20;
 interface IOracle {
     function readValue() external view returns (uint256);
     function readLatestValue() external view returns (uint256);
+    function readValueInterval() external view returns (uint256 minValue, uint256 maxValue);
     function lastUpdated() external view returns (uint256);
+    function description() external view returns (string memory);
     function isBlacklisted(address target) external view returns (bool);
     function history(uint256 index) external view returns (uint256);                 // sampled value at index
     function historyTimestamps(uint256 index) external view returns (uint256);      // timestamp for sampled value
@@ -18,6 +20,7 @@ abstract contract ComposedOracle {
 
     bool public immutable invertResult;
     uint256 public immutable defaultSampleSize;
+    string public description;
 
     uint256 private constant WAD = 1e18;
 
@@ -34,13 +37,14 @@ abstract contract ComposedOracle {
         _;
     }
 
-    constructor(address _feedA, address _feedB, bool _invertResult, uint256 _defaultSampleSize) {
+    constructor(address _feedA, address _feedB, bool _invertResult, uint256 _defaultSampleSize, string memory _description) {
         if (_feedA == address(0) || _feedB == address(0)) revert InvalidFeedAddress();
         if (_defaultSampleSize == 0) revert InvalidSampleSize();
         feedA = _feedA;
         feedB = _feedB;
         invertResult = _invertResult;
         defaultSampleSize = _defaultSampleSize;
+        description = _description;
     }
 
     function readValue() external view notBlacklisted returns (uint256) {
@@ -97,7 +101,7 @@ abstract contract ComposedOracle {
             timestampA = oracleA.historyTimestamps(indexA - 1);
             timestampB = oracleB.historyTimestamps(indexB - 1);
             currentTimestamp = timestampA >= timestampB ? timestampA : timestampB;
-            
+
             composedValue = _compose(oracleA.history(indexA - 1), oracleB.history(indexB - 1));
             if (composedValue < minValue) {
                 minValue = composedValue;
@@ -106,7 +110,7 @@ abstract contract ComposedOracle {
                 maxValue = composedValue;
             }
             composedCount++;
-            
+
             if (timestampA == currentTimestamp) indexA--;
             if (timestampB == currentTimestamp) indexB--;
         }
@@ -126,8 +130,7 @@ abstract contract ComposedOracle {
 }
 
 contract ComposedOracleByMultiplication is ComposedOracle {
-    constructor(address _feedA, address _feedB, bool _invertResult, uint256 _defaultSampleSize) 
-        ComposedOracle(_feedA, _feedB, _invertResult, _defaultSampleSize) {}
+    constructor(address _feedA, address _feedB, bool _invertResult, uint256 _defaultSampleSize, string memory _description) ComposedOracle(_feedA, _feedB, _invertResult, _defaultSampleSize, _description) {}
 
     function _composeWithoutInversion(uint256 valA, uint256 valB) internal pure override returns (uint256) {
         return (valA * valB) / 1e18;
@@ -135,8 +138,7 @@ contract ComposedOracleByMultiplication is ComposedOracle {
 }
 
 contract ComposedOracleByDivision is ComposedOracle {
-    constructor(address _feedA, address _feedB, bool _invertResult, uint256 _defaultSampleSize) 
-        ComposedOracle(_feedA, _feedB, _invertResult, _defaultSampleSize) {}
+    constructor(address _feedA, address _feedB, bool _invertResult, uint256 _defaultSampleSize, string memory _description) ComposedOracle(_feedA, _feedB, _invertResult, _defaultSampleSize, _description) {}
 
     function _composeWithoutInversion(uint256 valA, uint256 valB) internal pure override returns (uint256) {
         if (valB == 0) revert DivisionByZero();

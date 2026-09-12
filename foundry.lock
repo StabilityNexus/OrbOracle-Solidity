@@ -1,4 +1,7 @@
 {
+  "lib/Gluon-EVM": {
+    "rev": "edcc4ffa4cf10e2f73c07ac9d6fdc9b686c11c0b"
+  },
   "lib/forge-std": {
     "tag": {
       "name": "v1.16.1",

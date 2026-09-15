@@ -29,19 +29,21 @@ contract ComposedOracleFactory is Ownable {
     /// @param operation 0 for Multiplication, 1 for Division.
     /// @param invertResult If true, the final price is inverted (1 / price).
     /// @param defaultSampleSize The default lookback sample size.
+    /// @param description The description of the composed oracle.
     function createComposedOracle(
         address feedA,
         address feedB,
         uint8 operation,
         bool invertResult,
-        uint256 defaultSampleSize
+        uint256 defaultSampleSize,
+        string memory description
     ) external returns (address oracle) {
         if (feedA == address(0) || feedB == address(0)) revert InvalidFeed();
 
         if (operation == 0) {
-            oracle = address(new ComposedOracleByMultiplication(feedA, feedB, invertResult, defaultSampleSize));
+            oracle = address(new ComposedOracleByMultiplication(feedA, feedB, invertResult, defaultSampleSize, description));
         } else if (operation == 1) {
-            oracle = address(new ComposedOracleByDivision(feedA, feedB, invertResult, defaultSampleSize));
+            oracle = address(new ComposedOracleByDivision(feedA, feedB, invertResult, defaultSampleSize, description));
         } else {
             revert InvalidOperation();
         }

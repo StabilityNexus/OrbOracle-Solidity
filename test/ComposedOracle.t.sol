@@ -9,6 +9,7 @@ contract MockOracle {
     uint256 private lastSubTime;
     uint256[] public history;
     uint256[] public historyTimestamps;
+    string public description = "Mock Feed";
 
     mapping(address => bool) private blacklisted;
 
@@ -64,12 +65,20 @@ contract ComposedOracleTest is Test {
 
     function _newMulComposed() internal returns (ComposedOracle) { return _newMulComposed(100); }
     function _newMulComposed(uint256 defaultSampleSize) internal returns (ComposedOracle) {
-        return new ComposedOracleByMultiplication(address(feedA), address(feedB), false, defaultSampleSize);
+        return new ComposedOracleByMultiplication(address(feedA), address(feedB), false, defaultSampleSize, "ETH/USD * BTC/USD");
     }
 
     function _newDivComposed() internal returns (ComposedOracle) { return _newDivComposed(100); }
     function _newDivComposed(uint256 defaultSampleSize) internal returns (ComposedOracle) {
-        return new ComposedOracleByDivision(address(feedA), address(feedB), false, defaultSampleSize);
+        return new ComposedOracleByDivision(address(feedA), address(feedB), false, defaultSampleSize, "ETH/BTC");
+    }
+
+    function testDescription() public {
+        ComposedOracle composed = _newMulComposed(100);
+        assertEq(composed.description(), "ETH/USD * BTC/USD");
+
+        ComposedOracle divComposed = _newDivComposed(100);
+        assertEq(divComposed.description(), "ETH/BTC");
     }
 
     function testReadIntervalMatchingTimestamps() public {
@@ -138,14 +147,14 @@ contract ComposedOracleTest is Test {
         feedA.setPrice(6 * 1e18);
         feedB.setPrice(2 * 1e18);
 
-        ComposedOracle composed = new ComposedOracleByMultiplication(address(feedA), address(feedB), false, 100);
+        ComposedOracle composed = new ComposedOracleByMultiplication(address(feedA), address(feedB), false, 100, "ETH * BTC");
         assertEq(composed.readValue(), 12 * 1e18);
     }
 
     function testDivision() public {
         feedA.setPrice(6 * 1e18);
         feedB.setPrice(2 * 1e18);
-        ComposedOracle composed = new ComposedOracleByDivision(address(feedA), address(feedB), false, 100);
+        ComposedOracle composed = new ComposedOracleByDivision(address(feedA), address(feedB), false, 100, "ETH / BTC");
         assertEq(composed.readValue(), 3 * 1e18);
     }
 
@@ -153,7 +162,7 @@ contract ComposedOracleTest is Test {
         feedA.setPrice(10 * 1e18);
         feedB.setPrice(0);
 
-        ComposedOracle composed = new ComposedOracleByDivision(address(feedA), address(feedB), false, 100);
+        ComposedOracle composed = new ComposedOracleByDivision(address(feedA), address(feedB), false, 100, "ETH / BTC");
         vm.expectRevert(ComposedOracle.DivisionByZero.selector);
         composed.readValue();
     }
@@ -162,7 +171,7 @@ contract ComposedOracleTest is Test {
         feedA.setPrice(0);
         feedB.setPrice(5 * 1e18);
 
-        ComposedOracle composed = new ComposedOracleByMultiplication(address(feedA), address(feedB), true, 100);
+        ComposedOracle composed = new ComposedOracleByMultiplication(address(feedA), address(feedB), true, 100, "Inverted");
         vm.expectRevert(ComposedOracle.DivisionByZero.selector);
         composed.readValue();
     }
@@ -171,20 +180,20 @@ contract ComposedOracleTest is Test {
         feedA.setPrice(2 * 1e18);
         feedB.setPrice(1 * 1e18);
 
-        ComposedOracle composed = new ComposedOracleByMultiplication(address(feedA), address(feedB), true, 100);
+        ComposedOracle composed = new ComposedOracleByMultiplication(address(feedA), address(feedB), true, 100, "Inverted");
         uint256 expected = (1e18 * 1e18) / (2 * 1e18);
         assertEq(composed.readValue(), expected);
     }
 
     function testConstructorRevertAddressZero() public {
         vm.expectRevert(ComposedOracle.InvalidFeedAddress.selector);
-        new ComposedOracleByMultiplication(address(0), address(feedB), false, 100);
+        new ComposedOracleByMultiplication(address(0), address(feedB), false, 100, "desc");
         vm.expectRevert(ComposedOracle.InvalidFeedAddress.selector);
-        new ComposedOracleByMultiplication(address(feedA), address(0), false, 100);
+        new ComposedOracleByMultiplication(address(feedA), address(0), false, 100, "desc");
     }
 
     function testBlacklistCallerRevert() public {
-        ComposedOracle composed = new ComposedOracleByMultiplication(address(feedA), address(feedB), false, 100);
+        ComposedOracle composed = new ComposedOracleByMultiplication(address(feedA), address(feedB), false, 100, "desc");
         feedA.setBlacklisted(address(this), true);
         vm.expectRevert(ComposedOracle.BlacklistedCaller.selector);
         composed.readValue();
@@ -201,7 +210,7 @@ contract ComposedOracleTest is Test {
     }
 
     function testLastUpdatedMin() public {
-        ComposedOracle composed = new ComposedOracleByMultiplication(address(feedA), address(feedB), false, 100);
+        ComposedOracle composed = new ComposedOracleByMultiplication(address(feedA), address(feedB), false, 100, "desc");
         feedA.setLastUpdated(1000);
         feedB.setLastUpdated(2000);
         assertEq(composed.lastUpdated(), 1000);
@@ -215,10 +224,10 @@ contract ComposedOracleTest is Test {
         MockOracle feedC = new MockOracle(5 * 1e18);
         
         // 1. Compose feedA and feedB (composedParent)
-        ComposedOracle composedParent = new ComposedOracleByMultiplication(address(feedA), address(feedB), false, 100);
+        ComposedOracle composedParent = new ComposedOracleByMultiplication(address(feedA), address(feedB), false, 100, "Parent");
         
         // 2. Compose composedParent and feedC (nestedComposed)
-        ComposedOracle nestedComposed = new ComposedOracleByDivision(address(composedParent), address(feedC), false, 100);
+        ComposedOracle nestedComposed = new ComposedOracleByDivision(address(composedParent), address(feedC), false, 100, "Nested");
 
         feedA.setPrice(10 * 1e18);
         feedB.setPrice(2 * 1e18); // composedParent = 20 * 1e18
@@ -242,7 +251,7 @@ contract ComposedOracleTest is Test {
         feedA.setPrice(10 * 1e18);
         feedB.setPrice(2 * 1e18);
 
-        ComposedOracle composed = new ComposedOracleByMultiplication(address(feedA), address(feedB), false, 100);
+        ComposedOracle composed = new ComposedOracleByMultiplication(address(feedA), address(feedB), false, 100, "desc");
         assertEq(composed.readLatestValue(), 20 * 1e18);
 
         // Blacklist check for readLatestValue

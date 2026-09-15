@@ -11,6 +11,7 @@ contract MockOracle {
     function readValueInterval() external pure returns (uint256, uint256) { return (100 * 1e18, 100 * 1e18); }
     function lastUpdated() external pure returns (uint256) { return 0; }
     function isBlacklisted(address) external pure returns (bool) { return false; }
+    function description() external pure returns (string memory) { return "Mock Feed"; }
 }
 
 contract ComposedOracleFactoryTest is Test {
@@ -26,7 +27,7 @@ contract ComposedOracleFactoryTest is Test {
     }
 
     function testDeployMultiplication() public {
-        address oracleAddr = factory.createComposedOracle(feedA, feedB, 0, false, 100);
+        address oracleAddr = factory.createComposedOracle(feedA, feedB, 0, false, 100, "ETH * BTC Feed");
         assertTrue(oracleAddr != address(0));
 
         // Check registry
@@ -37,6 +38,9 @@ contract ComposedOracleFactoryTest is Test {
         assertEq(info.operation, 0);
         assertEq(info.creator, address(this));
 
+        // Verify description
+        assertEq(ComposedOracle(oracleAddr).description(), "ETH * BTC Feed");
+
         // Verify deployment returns correct price (100 * 100 / 1 = 10000 * 1e18)
         uint256 val = ComposedOracle(oracleAddr).readValue();
         assertEq(val, 10000 * 1e18);
@@ -44,7 +48,7 @@ contract ComposedOracleFactoryTest is Test {
 
     // Multiplication Inverted
     function testDeployMultiplicationInverted() public {
-        address oracleAddr = factory.createComposedOracle(feedA, feedB, 0, true, 100);
+        address oracleAddr = factory.createComposedOracle(feedA, feedB, 0, true, 100, "Inverted Feed");
         assertTrue(oracleAddr != address(0));
 
         // Verify deployment returns inverted price (1e18 * 1e18 / (10000 * 1e18) = 1e14)
@@ -53,7 +57,7 @@ contract ComposedOracleFactoryTest is Test {
     }
 
     function testDeployDivision() public {
-        address oracleAddr = factory.createComposedOracle(feedA, feedB, 1, false, 100);
+        address oracleAddr = factory.createComposedOracle(feedA, feedB, 1, false, 100, "ETH / BTC Feed");
         assertTrue(oracleAddr != address(0));
 
         // Check registry
@@ -63,6 +67,9 @@ contract ComposedOracleFactoryTest is Test {
         assertEq(info.feedB, feedB);
         assertEq(info.operation, 1);
 
+        // Verify description
+        assertEq(ComposedOracle(oracleAddr).description(), "ETH / BTC Feed");
+
         // Verify deployment returns correct price (100 / 100 = 1 * 1e18)
         uint256 val = ComposedOracle(oracleAddr).readValue();
         assertEq(val, 1 * 1e18);
@@ -70,20 +77,20 @@ contract ComposedOracleFactoryTest is Test {
 
     function testRevertInvalidOperation() public {
         vm.expectRevert(InvalidOperation.selector);
-        factory.createComposedOracle(feedA, feedB, 2, false, 100);
+        factory.createComposedOracle(feedA, feedB, 2, false, 100, "Invalid");
     }
 
     function testRevertInvalidFeedAddress() public {
         vm.expectRevert(InvalidFeed.selector);
-        factory.createComposedOracle(address(0), feedB, 0, false, 100);
+        factory.createComposedOracle(address(0), feedB, 0, false, 100, "Invalid");
 
         vm.expectRevert(InvalidFeed.selector);
-        factory.createComposedOracle(feedA, address(0), 0, false, 100);
+        factory.createComposedOracle(feedA, address(0), 0, false, 100, "Invalid");
     }
 
     function testListsAndGetters() public {
-        address oracle1 = factory.createComposedOracle(feedA, feedB, 0, false, 100);
-        address oracle2 = factory.createComposedOracle(feedA, feedB, 1, false, 100);
+        address oracle1 = factory.createComposedOracle(feedA, feedB, 0, false, 100, "Oracle 1");
+        address oracle2 = factory.createComposedOracle(feedA, feedB, 1, false, 100, "Oracle 2");
 
         ComposedOracleFactory.ComposedOracleInfo[] memory all = factory.allComposedOracles();
         assertEq(all.length, 2);

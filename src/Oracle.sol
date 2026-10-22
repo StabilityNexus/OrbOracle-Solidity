@@ -20,6 +20,11 @@ error PriceHistoryEndOutOfBounds();
 error InvalidPriceHistoryRange();
 error EmptyHistory();
 error InvalidSampleSize();
+error OnlyDev();
+error OnlyProposedDev();
+error DevFeeExceedsMax(uint256 devFee, uint256 maxDevFee);
+error DevFeeTransferFailed();
+error ZeroAddress();
 
 contract Oracle is Ownable, ReentrancyGuard {
 
@@ -29,6 +34,10 @@ contract Oracle is Ownable, ReentrancyGuard {
     event TokenWithdrawn(address indexed user, uint256 amount);
     event Voted(address indexed target, address indexed voter, bool isBlacklist, uint256 weight);
     event BlacklistStatusChanged(address indexed target, bool isBlacklisted);
+    event DevProposed(address indexed proposedDev);
+    event DevTransferred(address indexed oldDev, address indexed newDev);
+    event DevFeeReceiverUpdated(address indexed newReceiver);
+    event DevFeePaid(address indexed receiver, uint256 amount);
 
     IERC20 public immutable WEIGHT_TOKEN;
     
@@ -54,6 +63,12 @@ contract Oracle is Ownable, ReentrancyGuard {
 
     uint256 private constant DENOMINATOR = 1e5;
     uint256 private constant WAD = 1e18;
+    uint256 public constant MAX_DEV_FEE = 30_000;                // Maximum allowed dev fee: 30% of DENOMINATOR (1e5)
+
+    address public dev;
+    address public proposedDev;
+    address public devFeeReceiver;
+    uint256 public immutable devFee;
 
     uint256 private latestValue;                                 // most recent raw submission
     uint256 private aggregatedValue;                             // last aggregated price (decayed weighted mean) 
@@ -81,9 +96,16 @@ contract Oracle is Ownable, ReentrancyGuard {
         _;
     }
 
-    constructor(address owner_, string memory name_,string memory description_, address weightToken_,uint256 halfLifeSeconds_,uint256 q_,uint256 depositLockingPeriod_,uint256 withdrawalLockingPeriod_,uint256 rewardBps_, uint256 gamma_, uint256 defaultSampleSize_) Ownable(owner_) {
+    constructor(address owner_, address dev_, uint256 devFee_, string memory name_, string memory description_, address weightToken_, uint256 halfLifeSeconds_,uint256 q_, uint256 depositLockingPeriod_, uint256 withdrawalLockingPeriod_, uint256 rewardBps_, uint256 gamma_, uint256 defaultSampleSize_) Ownable(owner_) {
         if (weightToken_ == address(0)) revert InvalidWeightTokenAddress();
         if (defaultSampleSize_ == 0) revert InvalidSampleSize();
+        if (dev_ == address(0)) revert ZeroAddress();
+        if (devFee_ > MAX_DEV_FEE) revert DevFeeExceedsMax(devFee_, MAX_DEV_FEE);
+
+        dev = dev_;
+        devFeeReceiver = dev_;
+        devFee = devFee_;
+
         WEIGHT_TOKEN = IERC20(weightToken_); HALF_LIFE_SECONDS = halfLifeSeconds_;
         Q = q_; DEPOSIT_LOCKING_PERIOD = depositLockingPeriod_; WITHDRAWAL_LOCKING_PERIOD = withdrawalLockingPeriod_;
         lastTimestamp = block.timestamp; lastUpdated = block.timestamp; REWARD_BPS = rewardBps_; name = name_; description = description_;
@@ -91,12 +113,47 @@ contract Oracle is Ownable, ReentrancyGuard {
     }
 
     receive() external payable {
-        lastTimestamp = block.timestamp;
-        emit Funded(msg.sender, msg.value);
+        _handleDeposit();
     }
+
     function deposit() external payable {
+        _handleDeposit();
+    }
+
+    function _handleDeposit() internal {
         lastTimestamp = block.timestamp;
-        emit Funded(msg.sender, msg.value);
+        uint256 amount = msg.value;
+        if (amount > 0 && devFee > 0) {
+            uint256 fee = (amount * devFee) / DENOMINATOR;
+            if (fee > 0) {
+                (bool ok, ) = devFeeReceiver.call{value: fee}("");
+                if (!ok) revert DevFeeTransferFailed();
+                emit DevFeePaid(devFeeReceiver, fee);
+            }
+        }
+        emit Funded(msg.sender, amount);
+    }
+
+    function proposeDev(address newDev) external {
+        if (msg.sender != dev) revert OnlyDev();
+        if (newDev == address(0)) revert ZeroAddress();
+        proposedDev = newDev;
+        emit DevProposed(newDev);
+    }
+
+    function acceptDev() external {
+        if (msg.sender != proposedDev) revert OnlyProposedDev();
+        address oldDev = dev;
+        dev = msg.sender;
+        proposedDev = address(0);
+        emit DevTransferred(oldDev, msg.sender);
+    }
+
+    function setDevFeeReceiver(address newReceiver) external {
+        if (msg.sender != dev) revert OnlyDev();
+        if (newReceiver == address(0)) revert ZeroAddress();
+        devFeeReceiver = newReceiver;
+        emit DevFeeReceiverUpdated(newReceiver);
     }
 
     function submitValue(uint256 newValue) external nonReentrant onlyTokenHolder {

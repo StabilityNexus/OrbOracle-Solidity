@@ -5,9 +5,15 @@ import {Ownable} from "lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Oracle} from "./Oracle.sol";
 
 error InvalidWeightToken();
+error OnlyDev();
+error OnlyProposedDev();
+error DevFeeExceedsMax(uint256 devFee, uint256 maxDevFee);
+error ZeroAddress();
 
 contract OracleFactory is Ownable {
     event OracleCreated(address indexed oracle, address indexed creator, address token);
+    event DevProposed(address indexed proposedDev);
+    event DevTransferred(address indexed oldDev, address indexed newDev);
 
     struct OracleInfo {
         address oracle;
@@ -15,10 +21,35 @@ contract OracleFactory is Ownable {
         address creator;
     }
 
+    uint256 public constant MAX_DEV_FEE = 30_000;                // Maximum allowed dev fee: 30% of DENOMINATOR (1e5)
+    address public dev;
+    address public proposedDev;
+    uint256 public immutable devFee;
+
     OracleInfo[] public oracles;
     mapping(address => address[]) public creatorToOracle;
 
-    constructor(address initialOwner) Ownable(initialOwner) {}
+    constructor(address initialOwner, address initialDev, uint256 devFee_) Ownable(initialOwner) {
+        if (initialDev == address(0)) revert ZeroAddress();
+        if (devFee_ > MAX_DEV_FEE) revert DevFeeExceedsMax(devFee_, MAX_DEV_FEE);
+        dev = initialDev;
+        devFee = devFee_;
+    }
+
+    function proposeDev(address newDev) external {
+        if (msg.sender != dev) revert OnlyDev();
+        if (newDev == address(0)) revert ZeroAddress();
+        proposedDev = newDev;
+        emit DevProposed(newDev);
+    }
+
+    function acceptDev() external {
+        if (msg.sender != proposedDev) revert OnlyProposedDev();
+        address oldDev = dev;
+        dev = msg.sender;
+        proposedDev = address(0);
+        emit DevTransferred(oldDev, msg.sender);
+    }
 
     /// @notice Anyone can create a new Oracle using an existing ERC20 token.
     /// @param weightToken Address of the ERC20 token to be used for weighting.
@@ -46,6 +77,8 @@ contract OracleFactory is Ownable {
         
         Oracle o = new Oracle(
             msg.sender,      // owner (oracle creator)
+            dev,             // dev
+            devFee,          // devFee
             name,
             description,
             weightToken,

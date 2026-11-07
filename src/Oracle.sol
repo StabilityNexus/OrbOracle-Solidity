@@ -106,14 +106,14 @@ contract Oracle is Ownable, ReentrancyGuard {
         lastTimestamp = nowTs;
         uint256 w = unlockedTokens[msg.sender];                                                        // Using unlocked tokens as weight
 
-        uint256 decayedQ = DecayLib.applyDecay(aggregatedWeight, nowTs - lastUpdated, HALF_LIFE_SECONDS); 
+        uint256 decayedQ = DecayLib.applyDecayBetween(aggregatedWeight, lastUpdated, nowTs, HALF_LIFE_SECONDS); 
 
         uint256 lastT = tof[msg.sender]; 
         uint256 oldWeight = wof[msg.sender]; 
         uint256 oldPrice = pof[msg.sender];  
         
         uint256 timeSinceUser = nowTs - lastT;
-        uint256 userWeightDecayed = DecayLib.applyDecay(oldWeight, timeSinceUser, HALF_LIFE_SECONDS); // Calculate decayed contributions 
+        uint256 userWeightDecayed = DecayLib.applyDecayBetween(oldWeight, lastT, nowTs, HALF_LIFE_SECONDS); // Calculate decayed contributions 
 
         uint256 sub = oldPrice * userWeightDecayed;
         uint256 numerator; // Calculate new weighted average
@@ -122,7 +122,8 @@ contract Oracle is Ownable, ReentrancyGuard {
         } else {
             numerator = 0;
         }
-        uint256 newQ = decayedQ - userWeightDecayed + w;
+        // Rounding can leave decayedQ a few wei below the submitter's own decayed weight.
+        uint256 newQ = (decayedQ > userWeightDecayed ? decayedQ - userWeightDecayed : 0) + w;
         numerator += newValue * w;
         uint256 newP = numerator / newQ; 
         

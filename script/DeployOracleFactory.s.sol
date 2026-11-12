@@ -12,7 +12,10 @@ contract DeployOracleFactory is Script {
     function run() public {
         vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
 
-        factory = new OracleFactory(0xab53369e91dcFC275744DC0A30BD3E363B2785e0);
+        address devAddress = vm.envOr("DEV_ADDRESS", address(0xab53369e91dcFC275744DC0A30BD3E363B2785e0));
+        uint256 devFee = vm.envOr("DEV_FEE", uint256(1000)); // Default 1% (1000 / 1e5)
+
+        factory = new OracleFactory(0xab53369e91dcFC275744DC0A30BD3E363B2785e0, devAddress, devFee);
 
         console.log("Factory Deployed: ", address(factory));
 

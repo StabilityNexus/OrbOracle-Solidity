@@ -21,6 +21,7 @@ error PriceHistoryEndOutOfBounds();
 error InvalidPriceHistoryRange();
 error EmptyHistory();
 error InvalidSampleSize();
+error ValueOutOfRange(uint256 value, uint256 minValue, uint256 maxValue);
 
 contract Oracle is Ownable, ReentrancyGuard {
 
@@ -55,6 +56,7 @@ contract Oracle is Ownable, ReentrancyGuard {
 
     uint256 private constant DENOMINATOR = 1e5;
     uint256 private constant WAD = 1e18;
+    uint256 private constant MAX_VALUE_MOVE = 10;                // holding all deposits, one submission may move the feed at most 10x
 
     uint256 private latestValue;                                 // most recent raw submission
     uint256 private aggregatedValue;                             // last aggregated price (decayed weighted mean) 
@@ -105,6 +107,26 @@ contract Oracle is Ownable, ReentrancyGuard {
         lastOperationTimestamp[msg.sender] = nowTs;
         lastTimestamp = nowTs;
         uint256 w = unlockedTokens[msg.sender];                                                        // Using unlocked tokens as weight
+
+        // One submission may move the feed by at most a factor 1 + 9 * w / totalDepositedTokens. Deposits do not
+        // decay, so a tiny stake cannot move the feed even after every other weight has decayed away.
+        uint256 currentValue = aggregatedValue;                                                         // 0 until the first submission
+        if (currentValue != 0) {
+            uint256 total = totalDepositedTokens;
+            uint256 moveWeight = (MAX_VALUE_MOVE - 1) * w;
+            // Huge values (only possible after an unchecked first submission) take a path that cannot overflow.
+            uint256 maxValue = currentValue > type(uint256).max / MAX_VALUE_MOVE || currentValue > type(uint256).max / moveWeight
+                ? type(uint256).max
+                : currentValue + currentValue * moveWeight / total;
+            uint256 minValue;
+            if (currentValue > type(uint256).max / total) {
+                // forge-lint: disable-next-line(divide-before-multiply)
+                minValue = currentValue / (total + moveWeight) * total;
+            } else {
+                minValue = currentValue * total / (total + moveWeight);
+            }
+            if (newValue > maxValue || newValue < minValue) revert ValueOutOfRange(newValue, minValue, maxValue);
+        }
 
         uint256 decayedQ = DecayLib.applyDecay(aggregatedWeight, nowTs - lastUpdated, HALF_LIFE_SECONDS); 
 

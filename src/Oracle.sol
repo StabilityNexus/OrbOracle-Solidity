@@ -213,13 +213,13 @@ contract Oracle is Ownable, ReentrancyGuard {
         GovernanceLib.updateUserVoteWeights(governance, msg.sender, unlockedTokens[msg.sender], totalDepositedTokens, Q);
     }
 
-    function voteBlacklist(address target) external onlyTokenHolder {
+    function voteBlacklist(address target) external onlyTokenHolder notBlacklisted {
         lastOperationTimestamp[msg.sender] = block.timestamp;
         lastTimestamp = block.timestamp;
         GovernanceLib.voteBlacklist(governance, target, msg.sender, unlockedTokens[msg.sender], totalDepositedTokens, Q);                 // Unlocked tokens are used for voting as weight
     }
     
-    function voteWhitelist(address target) external onlyTokenHolder {
+    function voteWhitelist(address target) external onlyTokenHolder notBlacklisted {
         lastOperationTimestamp[msg.sender] = block.timestamp;
         lastTimestamp = block.timestamp;
         GovernanceLib.voteWhitelist(governance, target, msg.sender, unlockedTokens[msg.sender], totalDepositedTokens, Q);                  // Unlocked tokens are used for voting as weight

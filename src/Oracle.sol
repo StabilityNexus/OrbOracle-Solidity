@@ -137,7 +137,15 @@ contract Oracle is Ownable, ReentrancyGuard {
         aggregatedValue = newP; aggregatedWeight = newQ;
         pof[msg.sender] = newValue; wof[msg.sender] = w; tof[msg.sender] = nowTs;
         lastUpdated = nowTs; latestValue = newValue;
-        priceHistory[nowTs] = newP; latestValueHistory[nowTs] = newValue; priceTimestamps.push(nowTs);
+        priceHistory[nowTs] = newP;
+        latestValueHistory[nowTs] = newValue;
+
+        if (
+            priceTimestamps.length == 0 ||
+            priceTimestamps[priceTimestamps.length - 1] != nowTs
+        ) {
+            priceTimestamps.push(nowTs);
+        }
 
         uint256 lastRecordedTs = historyTimestamps.length == 0 ? 0 : historyTimestamps[historyTimestamps.length - 1];
         if (history.length == 0 || nowTs > lastRecordedTs + GAMMA) {

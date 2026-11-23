@@ -157,6 +157,18 @@ contract Oracle is Ownable, ReentrancyGuard {
     }
 
     function readValueInterval() external view notBlacklisted returns (uint256 minValue, uint256 maxValue) {
+        return _readValueInterval();
+    }
+
+    function readMaxValue() external view notBlacklisted returns (uint256 maxValue) {
+        (, maxValue) = _readValueInterval();
+    }
+
+    function readMinValue() external view notBlacklisted returns (uint256 minValue) {
+        (minValue,) = _readValueInterval();
+    }
+
+    function _readValueInterval() private view returns (uint256 minValue, uint256 maxValue) {
         if (history.length == 0) revert EmptyHistory();
 
         uint256 historyLength = history.length;

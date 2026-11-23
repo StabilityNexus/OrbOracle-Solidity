@@ -21,6 +21,7 @@ error PriceHistoryEndOutOfBounds();
 error InvalidPriceHistoryRange();
 error EmptyHistory();
 error InvalidSampleSize();
+error InvalidRewardBps();
 
 contract Oracle is Ownable, ReentrancyGuard {
 
@@ -85,6 +86,7 @@ contract Oracle is Ownable, ReentrancyGuard {
     constructor(address owner_, string memory name_,string memory description_, address weightToken_,uint256 halfLifeSeconds_,uint256 q_,uint256 depositLockingPeriod_,uint256 withdrawalLockingPeriod_,uint256 rewardBps_, uint256 gamma_, uint256 defaultSampleSize_) Ownable(owner_) {
         if (weightToken_ == address(0)) revert InvalidWeightTokenAddress();
         if (defaultSampleSize_ == 0) revert InvalidSampleSize();
+        if (rewardBps_ > DENOMINATOR) revert InvalidRewardBps();
         WEIGHT_TOKEN = IERC20(weightToken_); HALF_LIFE_SECONDS = halfLifeSeconds_;
         Q = q_; DEPOSIT_LOCKING_PERIOD = depositLockingPeriod_; WITHDRAWAL_LOCKING_PERIOD = withdrawalLockingPeriod_;
         lastTimestamp = block.timestamp; lastUpdated = block.timestamp; REWARD_BPS = rewardBps_; name = name_; description = description_;
